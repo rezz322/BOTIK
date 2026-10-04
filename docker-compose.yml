@@ -1,0 +1,9 @@
+services:
+  botik:
+    build: .
+    container_name: botik_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./seen_posts.json:/app/seen_posts.json

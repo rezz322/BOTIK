@@ -242,6 +242,6 @@ if __name__ == "__main__":
     print(f"Цільовий Thread ID: {monitor.thread_id}")
     print(f"Активних цілей у напрямку району: {len(data['dangers'])}")
     print("=" * 60)
-    
-    # Для постійного відслідковування розкоментуйте:
-    # monitor.run_live(poll_interval=15)
+    # Запуск постійного моніторингу в реальному часі (кожні 15 сек)
+    monitor.run_live(poll_interval=15)
+
