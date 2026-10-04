@@ -1,0 +1,12 @@
+# Секретні ключі та налаштування
+.env
+
+# Логи та тимчасові файли
+*.log
+bot.log
+seen_posts.json
+__pycache__/
+*.pyc
+*.pyo
+.vscode/
+.idea/
