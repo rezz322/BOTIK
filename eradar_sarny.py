@@ -15,18 +15,22 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
-logger = logging.getLogger("eRadarSarny")
+logger = logging.getLogger("RadarMonitor")
 
 
 if __name__ == "__main__":
     monitor = SarnyRadarMonitor(send_to_telegram=True)
     data = monitor.get_status()
-    print("=" * 60)
-    print("📍 ДАНІ З ERADAR + КУПОЛ ДЛЯ САРНЕНСЬКОГО РАЙОНУ:")
-    print(f"Статус тривоги: {data['alarm_text']}")
-    print(f"Цільовий Thread ID: {monitor.thread_id}")
-    print(f"Активних цілей у напрямку району (eRadar): {len(data['dangers'])}")
-    print(f"Активних цілей у напрямку району (КУПОЛ): {len(data['kupol_threats'])}")
-    print("=" * 60)
+    print("=" * 65)
+    print("📍 МОНІТОРИНГ ЗАГРОЗ ERADAR + КУПОЛ (САРНИ ТА ОДЕСА):")
+    for r_id, r_cfg in monitor.regions.items():
+        is_al = data["alarms_by_region"].get(r_id, False)
+        al_txt = "🔴 ТРИВОГА" if is_al else "🟢 ВІДБІЙ"
+        d_cnt = len(data["dangers_by_region"].get(r_id, []))
+        k_cnt = len(data["kupol_by_region"].get(r_id, []))
+        th_id = monitor.get_thread_for_region(r_id)
+        print(f"👉 [{r_cfg['name']}] (Thread ID: {th_id})")
+        print(f"   Статус: {al_txt} | eRadar цілей: {d_cnt} | КУПОЛ цілей: {k_cnt}")
+    print("=" * 65)
     # Запуск постійного моніторингу в реальному часі (кожні 15 сек)
     monitor.run_live(poll_interval=15)

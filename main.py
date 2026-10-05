@@ -53,8 +53,7 @@ class AutoBot:
 
         for idx, url in enumerate(TARGET_URLS):
             try:
-                # Визначаємо гілку (ветку) для цього посилання
-                target_thread = URL_TO_THREAD.get(url) or (THREAD_ID_FB_1 if idx == 0 else THREAD_ID_FB_2)
+                target_thread = URL_TO_THREAD.get(url) or THREAD_ID_FB_1
 
                 # Отримуємо виключно найостанніший пост
                 latest_post = self.parser.fetch_latest_post(url)

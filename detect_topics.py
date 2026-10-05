@@ -60,11 +60,15 @@ def main():
                     ident = (text + " " + (topic_name or "")).lower()
                     assigned = None
 
-                    if "1" in ident or "фейсбук 1" in ident or "fb1" in ident or "сарн" in ident:
+                    if "1" in ident or "фейсбук 1" in ident or "fb1" in ident or "сарн фб" in ident:
                         assigned = "THREAD_ID_FB_1"
                     elif "2" in ident or "фейсбук 2" in ident or "fb2" in ident or "поліц" in ident:
                         assigned = "THREAD_ID_FB_2"
-                    elif "тривог" in ident or "тревог" in ident or "3" in ident or "радар" in ident:
+                    elif "чигур" in ident or "фейсбук 3" in ident or "fb3" in ident or "3" in ident and "тривог" not in ident:
+                        assigned = "THREAD_ID_FB_3"
+                    elif "одес" in ident and ("тривог" in ident or "тревог" in ident or "радар" in ident):
+                        assigned = "THREAD_ID_ALERTS_ODESA"
+                    elif "тривог" in ident or "тревог" in ident or "радар" in ident:
                         assigned = "THREAD_ID_ALERTS"
 
                     if assigned:

@@ -2,26 +2,54 @@ import math
 import html
 import re
 
-# Координати центру Сарн
-SARNY_LAT = 51.3378
-SARNY_LNG = 26.6344
-SARNY_RADIUS_KM = 55.0  # Радіус охоплення району
+# Налаштування регіонів для моніторингу
+MONITORED_REGIONS = {
+    "sarny": {
+        "id": "sarny",
+        "name": "Сарненський район",
+        "short_name": "Сарни",
+        "lat": 51.3378,
+        "lng": 26.6344,
+        "radius_km": 55.0,
+        "keywords": [
+            "сарн", "дубровиц", "рокитн", "клесів", "степань", "немович",
+            "вири", "висоцьк", "миляцьк", "березн", "костопіль", "північ рівнен"
+        ],
+        "oblast_keywords": ["rivnenska", "рівненськ"],
+        "raion_keywords": ["sarnen", "сарненськ"],
+        "kupol_raion_id": "сарненський",
+        "env_thread_key": "THREAD_ID_ALERTS",
+    },
+    "odesa": {
+        "id": "odesa",
+        "name": "Одеса та Одеський район",
+        "short_name": "Одеса",
+        "lat": 46.4825,
+        "lng": 30.7233,
+        "radius_km": 60.0,
+        "keywords": [
+            "одес", "чорноморськ", "южне", "південне", "заток", "овідіополь",
+            "біляївк", "теплодар", "фонтанк", "крижанівк", "таїров", "аркаді",
+            "лиманк", "усатов", "нерубайськ", "дачне", "хаджибей", "паланк"
+        ],
+        "oblast_keywords": ["odeska", "одеськ"],
+        "raion_keywords": ["odes", "одеськ", "одеса"],
+        "kupol_raion_id": "одеський",
+        "env_thread_key": "THREAD_ID_ALERTS_ODESA",
+    },
+}
 
-# Ключові слова для фільтрації по Сарненському району та прилеглих точках
-SARNY_KEYWORDS = [
-    "сарн",          # Сарни, Сарненський, Сарненщина, Сарнах
-    "дубровиц",      # Дубровиця, Дубровицький
-    "рокитн",        # Рокитне, Рокитнівський
-    "клесів",        # Клесів
-    "степань",       # Степань
-    "немович",       # Немовичі
-    "вири",          # Вири
-    "висоцьк",       # Висоцьк
-    "миляцьк",       # Миляцьк
-    "березн",        # Березне
-    "костопіль",     # Костопіль
-    "північ рівнен", # північ Рівненщини / північ Рівненської
-]
+# Сумісність зі старими імпортами Сарн
+SARNY_LAT = MONITORED_REGIONS["sarny"]["lat"]
+SARNY_LNG = MONITORED_REGIONS["sarny"]["lng"]
+SARNY_RADIUS_KM = MONITORED_REGIONS["sarny"]["radius_km"]
+SARNY_KEYWORDS = MONITORED_REGIONS["sarny"]["keywords"]
+
+# Константи Одеси
+ODESA_LAT = MONITORED_REGIONS["odesa"]["lat"]
+ODESA_LNG = MONITORED_REGIONS["odesa"]["lng"]
+ODESA_RADIUS_KM = MONITORED_REGIONS["odesa"]["radius_km"]
+ODESA_KEYWORDS = MONITORED_REGIONS["odesa"]["keywords"]
 
 THREAT_TRANSLATION = {
     "drone": "🛵 БпЛА (Шахед)",
@@ -69,10 +97,18 @@ def heading_to_compass(deg) -> str:
         return f"{deg}°"
 
 
-def line_matches_sarny(line: str) -> bool:
-    """Перевіряє, чи містить рядок ключові слова Сарненського району."""
+def line_matches_region(line: str, region_cfg: dict) -> bool:
+    """Перевіряє, чи містить рядок ключові слова зазначеного регіону."""
     l = line.lower()
-    return any(k in l for k in SARNY_KEYWORDS)
+    return any(k in l for k in region_cfg.get("keywords", []))
+
+
+def line_matches_sarny(line: str) -> bool:
+    return line_matches_region(line, MONITORED_REGIONS["sarny"])
+
+
+def line_matches_odesa(line: str) -> bool:
+    return line_matches_region(line, MONITORED_REGIONS["odesa"])
 
 
 def is_bullet_line(s: str) -> bool:
@@ -98,7 +134,6 @@ def is_header_line(s: str) -> bool:
         return True
     if st.startswith("#"):
         return True
-    # Емодзі + текст із двокрапкою (наприклад, ✈️Чернігівщина:)
     if re.match(r"^[\U00010000-\U0010ffff\u2600-\u27bf\u2b50].*:", st):
         return True
     return False
@@ -112,12 +147,9 @@ def clean_text_line(s: str) -> str:
     return re.sub(r"[ \t]+", " ", s).strip()
 
 
-def filter_relevant_lines(text: str) -> str:
+def filter_relevant_lines_for_region(text: str, region_cfg: dict) -> str:
     """
-    Фільтрує текст моніторингу по рядках:
-    Залишає тільки рядки та відповідні блоки (заголовки областей),
-    що стосуються Сарненського району / напрямку, відсікаючи інші області, міста,
-    а також видаляє згадки каналів та посилання.
+    Фільтрує текст моніторингу по рядках для обраного регіону (Сарни або Одеса).
     """
     if not text:
         return ""
@@ -153,7 +185,7 @@ def filter_relevant_lines(text: str) -> str:
             sub_sections.append((cur_header, cur_items))
 
         for header, items in sub_sections:
-            matched_items = [clean_text_line(it) for it in items if line_matches_sarny(it)]
+            matched_items = [clean_text_line(it) for it in items if line_matches_region(it, region_cfg)]
             matched_items = [it for it in matched_items if it]
             if matched_items:
                 res = []
@@ -163,7 +195,7 @@ def filter_relevant_lines(text: str) -> str:
                         res.append(clean_h)
                 res.extend(matched_items)
                 kept_chunks.append("\n".join(res))
-            elif header and line_matches_sarny(header):
+            elif header and line_matches_region(header, region_cfg):
                 res = []
                 clean_h = clean_text_line(header)
                 if clean_h:
@@ -174,7 +206,7 @@ def filter_relevant_lines(text: str) -> str:
                         res.append(cit)
                 kept_chunks.append("\n".join(res))
             elif not header:
-                matched = [clean_text_line(it) for it in items if line_matches_sarny(it)]
+                matched = [clean_text_line(it) for it in items if line_matches_region(it, region_cfg)]
                 matched = [it for it in matched if it]
                 if matched:
                     kept_chunks.append("\n".join(matched))
@@ -182,13 +214,17 @@ def filter_relevant_lines(text: str) -> str:
     if kept_chunks:
         return "\n\n".join(kept_chunks)
 
-    # Запасний варіант: якщо блочна структура не знайшла збігів, перевіряємо по окремих рядках
-    fallback_lines = [clean_text_line(l) for l in text.splitlines() if l.strip() and line_matches_sarny(l)]
+    fallback_lines = [clean_text_line(l) for l in text.splitlines() if l.strip() and line_matches_region(l, region_cfg)]
     fallback_lines = [l for l in fallback_lines if l]
     if fallback_lines:
         return "\n".join(fallback_lines)
 
     return ""
+
+
+def filter_relevant_lines(text: str) -> str:
+    """Сумісність зі старим кодом (за замовчуванням Сарни)."""
+    return filter_relevant_lines_for_region(text, MONITORED_REGIONS["sarny"])
 
 
 def format_telegram_html(text: str) -> str:

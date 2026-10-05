@@ -17,9 +17,11 @@ def _parse_thread_id(val):
         return int(str(val).strip())
     return None
 
-THREAD_ID_FB_1 = _parse_thread_id(os.getenv("THREAD_ID_FB_1"))      # гілка "Фейсбук 1"
-THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))      # гілка "Фейсбук 2"
-THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))  # гілка "Тривога"
+THREAD_ID_FB_1 = _parse_thread_id(os.getenv("THREAD_ID_FB_1"))              # гілка "Фейсбук 1"
+THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))              # гілка "Фейсбук 2"
+THREAD_ID_FB_3 = _parse_thread_id(os.getenv("THREAD_ID_FB_3"))              # гілка "Фейсбук 3"
+THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни або спільна)
+THREAD_ID_ALERTS_ODESA = _parse_thread_id(os.getenv("THREAD_ID_ALERTS_ODESA"))  # окрема гілка для Одеси (якщо задана)
 
 # Список посилань на профілі Facebook для моніторингу
 TARGET_URLS = [
@@ -31,12 +33,17 @@ TARGET_URLS = [
         "FB_URL_2",
         "https://www.facebook.com/profile.php?id=100064698822458",
     ),
+    os.getenv(
+        "FB_URL_3",
+        "https://www.facebook.com/profile.php?id=61594944667843",
+    ),
 ]
 
 # Словник прив'язки URL до відповідної гілки
 URL_TO_THREAD = {
     TARGET_URLS[0]: THREAD_ID_FB_1,
     TARGET_URLS[1]: THREAD_ID_FB_2,
+    TARGET_URLS[2]: THREAD_ID_FB_3 or THREAD_ID_FB_1,
 }
 
 # Інтервал перевірки (в годинах)
