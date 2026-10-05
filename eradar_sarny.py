@@ -69,6 +69,27 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def heading_to_compass(deg) -> str:
+    """Перетворює азимут/градуси курсу польоту у зрозумілий людині напрямок."""
+    if deg is None:
+        return ""
+    try:
+        val = int((float(deg) / 45.0) + 0.5) % 8
+        compass = [
+            "Північ ⬆️",
+            "Північний схід ↗️",
+            "Схід ➡️",
+            "Південний схід ↘️",
+            "Південь ⬇️",
+            "Південний захід ↙️",
+            "Захід ⬅️",
+            "Північний захід ↖️",
+        ]
+        return f"{round(float(deg))}° ({compass[val]})"
+    except Exception:
+        return f"{deg}°"
+
+
 def line_matches_sarny(line: str) -> bool:
     """Перевіряє, чи містить рядок ключові слова Сарненського району."""
     l = line.lower()
@@ -104,11 +125,20 @@ def is_header_line(s: str) -> bool:
     return False
 
 
+def clean_text_line(s: str) -> str:
+    """Видаляє юзернейми каналів (@channel), посилання та зайві пробіли."""
+    s = re.sub(r"\(@[a-zA-Z0-9_]+\)", "", s)
+    s = re.sub(r"@[a-zA-Z0-9_]+", "", s)
+    s = re.sub(r"https?://\S+", "", s)
+    return re.sub(r"[ \t]+", " ", s).strip()
+
+
 def filter_relevant_lines(text: str) -> str:
     """
     Фільтрує текст моніторингу по рядках:
     Залишає тільки рядки та відповідні блоки (заголовки областей),
-    що стосуються Сарненського району / напрямку, відсікаючи інші області та міста.
+    що стосуються Сарненського району / напрямку, відсікаючи інші області, міста,
+    а також видаляє згадки каналів та посилання.
     """
     if not text:
         return ""
@@ -145,19 +175,29 @@ def filter_relevant_lines(text: str) -> str:
             sub_sections.append((cur_header, cur_items))
 
         for header, items in sub_sections:
-            matched_items = [it for it in items if line_matches_sarny(it)]
+            matched_items = [clean_text_line(it) for it in items if line_matches_sarny(it)]
+            matched_items = [it for it in matched_items if it]
             if matched_items:
                 res = []
                 if header:
-                    res.append(header)
+                    clean_h = clean_text_line(header)
+                    if clean_h:
+                        res.append(clean_h)
                 res.extend(matched_items)
                 kept_chunks.append("\n".join(res))
             elif header and line_matches_sarny(header):
-                res = [header]
-                res.extend(items)
+                res = []
+                clean_h = clean_text_line(header)
+                if clean_h:
+                    res.append(clean_h)
+                for it in items:
+                    cit = clean_text_line(it)
+                    if cit:
+                        res.append(cit)
                 kept_chunks.append("\n".join(res))
             elif not header:
-                matched = [it for it in items if line_matches_sarny(it)]
+                matched = [clean_text_line(it) for it in items if line_matches_sarny(it)]
+                matched = [it for it in matched if it]
                 if matched:
                     kept_chunks.append("\n".join(matched))
 
@@ -165,7 +205,8 @@ def filter_relevant_lines(text: str) -> str:
         return "\n\n".join(kept_chunks)
 
     # Запасний варіант: якщо блочна структура не знайшла збігів, перевіряємо по рядках
-    fallback_lines = [l.strip() for l in text.splitlines() if l.strip() and line_matches_sarny(l)]
+    fallback_lines = [clean_text_line(l) for l in text.splitlines() if l.strip() and line_matches_sarny(l)]
+    fallback_lines = [l for l in fallback_lines if l]
     if fallback_lines:
         return "\n".join(fallback_lines)
 
@@ -208,33 +249,164 @@ class SarnyRadarMonitor:
         self.seen_feed_ids = set()
         self.seen_message_keys = set()
         self.seen_text_hashes = set()
+        self.seen_kupol_ids = set()
+
+    def check_sarny_alarm(self) -> bool:
+        """
+        Перевіряє статус повітряної тривоги ВИКЛЮЧНО для Сарненського району:
+        1. Запитує районний статус з alerts.in.ua (деталізація по конкретних районах).
+        2. Якщо тривога лише в Рівненському, Дубенському чи Вараському районі — для Сарн тривога НЕ вмикається.
+        3. Запасний варіант 1: перевірка офіційних повідомлень @UkraineAlarmSignal у стрічці eRadar.
+        4. Запасний варіант 2: перевірка районних тривог з сервісу КУПОЛ (kupol.in.ua).
+        """
+        # 1. Основне джерело: alerts.in.ua з районною деталізацією
+        try:
+            r = self.session.get("https://api.alerts.in.ua/v3/alerts/active.md", impersonate="chrome124", timeout=10)
+            if r.status_code == 200:
+                txt = r.text
+                sec3_idx = txt.find("## 3. CURRENT WARNING STATUS")
+                sec4_idx = txt.find("## 4.", sec3_idx) if sec3_idx != -1 else -1
+                sec3 = txt[sec3_idx:sec4_idx] if sec3_idx != -1 and sec4_idx != -1 else txt[sec3_idx:]
+
+                # Шукаємо запис по Рівненській області
+                for para in sec3.split("\n\n"):
+                    para_s = para.strip()
+                    if "rivnenska oblast" in para_s.lower() or "рівненська область" in para_s.lower():
+                        # Тривога десь у Рівненській області
+                        # Перевіряємо, чи саме в Сарненському районі
+                        if "sarnen" in para_s.lower() or "сарненськ" in para_s.lower():
+                            return True
+                        elif "all areas" in para_s.lower() or "всі райони" in para_s.lower():
+                            return True
+                        else:
+                            # Тривога в іншому районі (наприклад, Рівненському чи Дубенському)
+                            return False
+
+                # Рівненської області взагалі немає в активних тривогах
+                return False
+        except Exception as e:
+            logger.error(f"Помилка отримання районного статусу з alerts.in.ua: {e}")
+
+        # 2. Запасне джерело 1: перевірка останніх повідомлень @UkraineAlarmSignal у стрічці eRadar
+        try:
+            r = self.session.get("https://eradar.app/api/feed?limit=50", impersonate="chrome124", timeout=10)
+            if r.status_code == 200:
+                feed = r.json().get("feed", [])
+                for item in feed:
+                    if item.get("channel") == "UkraineAlarmSignal":
+                        txt = (item.get("text") or "").lower()
+                        if "сарненськ" in txt:
+                            if "🟢" in txt or "відбій" in txt:
+                                return False
+                            if "🔴" in txt or "🟡" in txt or "тривог" in txt:
+                                return True
+        except Exception as e:
+            logger.error(f"Помилка отримання стрічки UkraineAlarmSignal: {e}")
+
+        # 3. Запасне джерело 2: перевірка районних тривог сервісу КУПОЛ (kupol.in.ua)
+        try:
+            r = self.session.get("https://kupol.in.ua/api/alerts/active", timeout=10)
+            if r.status_code == 200:
+                alerts = r.json().get("alerts", [])
+                for a in alerts:
+                    reg_id = str(a.get("regionId") or "").lower()
+                    reg_name = str(a.get("regionNameUk") or "").lower()
+                    if "сарненськ" in reg_id or "сарненськ" in reg_name:
+                        return a.get("status") == "active"
+        except Exception as e:
+            logger.error(f"Помилка отримання районного статусу з КУПОЛ: {e}")
+
+        return False
+
+    def get_kupol_threats(self) -> list:
+        """
+        Отримує активні загрози від додаткового сервісу КУПОЛ (kupol.in.ua / NEPTUN):
+        1. Запитує https://kupol.in.ua/api/threats/active
+        2. Фільтрує загрози по координатах до Сарн (радіус SARNY_RADIUS_KM) або по ключових словах Сарненщини в описі чи назві регіону.
+        3. Розраховує азимут/напрямок руху та дистанцію.
+        """
+        threats_found = []
+        try:
+            r = self.session.get("https://kupol.in.ua/api/threats/active", timeout=10)
+            if r.status_code == 200:
+                threats = r.json().get("threats", [])
+                for t in threats:
+                    tid = str(t.get("id"))
+                    coords = t.get("coordinates")
+                    lat, lng = None, None
+                    dist = 9999
+                    if coords and len(coords) >= 2:
+                        # Формат координат у КУПОЛ: [lng, lat]
+                        lng = coords[0]
+                        lat = coords[1]
+                        dist = haversine_km(SARNY_LAT, SARNY_LNG, lat, lng)
+
+                    note = t.get("noteUk") or ""
+                    region = t.get("regionNameUk") or ""
+                    comb_text = f"{note} {region}".lower()
+
+                    is_sarny_area = (dist <= SARNY_RADIUS_KM) or any(k in comb_text for k in SARNY_KEYWORDS)
+
+                    if is_sarny_area:
+                        heading = t.get("headingDeg")
+                        course_desc = heading_to_compass(heading) if heading is not None else None
+
+                        raw_kind = (t.get("kind") or "").lower()
+                        raw_label = t.get("labelUk") or raw_kind
+
+                        if "fpv" in raw_kind or "fpv" in raw_label.lower():
+                            threat_icon = "🛸"
+                        elif "uav" in raw_kind or "дрон" in raw_label.lower() or "бпла" in raw_label.lower():
+                            threat_icon = "🛵"
+                        elif "missile" in raw_kind or "ракет" in raw_label.lower() or "баліст" in raw_label.lower():
+                            threat_icon = "🚀"
+                        elif "kab" in raw_kind or "каб" in raw_label.lower():
+                            threat_icon = "💣"
+                        elif "aviation" in raw_kind or "авіа" in raw_label.lower():
+                            threat_icon = "✈️"
+                        else:
+                            threat_icon = "🎯"
+
+                        threat_display = f"{threat_icon} {raw_label}"
+
+                        threats_found.append({
+                            "id": tid,
+                            "threat_type": threat_display,
+                            "note": note,
+                            "region": region,
+                            "heading": heading,
+                            "course_desc": course_desc,
+                            "distance_km": round(dist, 1) if dist < 9999 else None,
+                            "lat": lat,
+                            "lng": lng,
+                            "source_label": t.get("sourceLabel") or "NEPTUN",
+                        })
+        except Exception as e:
+            logger.error(f"Помилка отримання даних з КУПОЛ (kupol.in.ua): {e}")
+
+        return threats_found
 
     def get_status(self) -> dict:
         """
-        Отримує повну актуальну інформацію з eRadar для Сарненського району:
+        Отримує повну актуальну інформацію з eRadar та додаткового сервісу КУПОЛ для Сарненського району:
         1. Статус тривоги (Тривога / Відбій)
-        2. Активні цілі (Dangers), що загрожують району
+        2. Активні цілі (Dangers) з eRadar
         3. Повідомлення моніторингу (Feed) з курсом руху
+        4. Активні цілі з координатами та азимутом з сервісу КУПОЛ (NEPTUN)
         """
         result = {
             "is_alarm": False,
             "alarm_text": "🟢 ВІДБІЙ",
             "dangers": [],
             "feed_events": [],
+            "kupol_threats": [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        # 1. Перевірка статусу повітряної тривоги
-        try:
-            r = self.session.get("https://eradar.app/api/alerts", impersonate="chrome124", timeout=15)
-            if r.status_code == 200:
-                alerts_data = r.json()
-                active = alerts_data.get("active", [])
-                is_rivne = any("рівнен" in x.lower() or "сарн" in x.lower() for x in active)
-                result["is_alarm"] = is_rivne
-                result["alarm_text"] = "🔴 ПОВІТРЯНА ТРИВОГА" if is_rivne else "🟢 ВІДБІЙ"
-        except Exception as e:
-            logger.error(f"Помилка отримання alerts: {e}")
+        # 1. Перевірка статусу повітряної тривоги ВИКЛЮЧНО для Сарненського району
+        is_sarny = self.check_sarny_alarm()
+        result["is_alarm"] = is_sarny
+        result["alarm_text"] = "🔴 ПОВІТРЯНА ТРИВОГА" if is_sarny else "🟢 ВІДБІЙ"
 
         # 2. Перевірка активних цілей (куда летит, тип загрози)
         danger_feed_ids = set()
@@ -305,6 +477,9 @@ class SarnyRadarMonitor:
         except Exception as e:
             logger.error(f"Помилка отримання feed: {e}")
 
+        # 4. Перевірка активних цілей від додаткового сервісу КУПОЛ (kupol.in.ua / NEPTUN)
+        result["kupol_threats"] = self.get_kupol_threats()
+
         return result
 
     def check_and_notify(self):
@@ -342,7 +517,7 @@ class SarnyRadarMonitor:
             if self.send_to_telegram:
                 self.sender._send_text_message(msg, thread_id=self.thread_id)
 
-        # 2. Нові цілі, що летять в район (Dangers)
+        # 2. Нові цілі від основного сервісу eRadar (Dangers)
         for d in data["dangers"]:
             did = str(d["id"])
             last_msg_id = str(d["last_message_id"]) if d.get("last_message_id") else None
@@ -369,17 +544,18 @@ class SarnyRadarMonitor:
                     fly_info_block = f"\n🧭 <b>Куди летить:</b>\n{det_html}"
 
                 msg = (
-                    f"🚨 <b>ЗАГРОЗА ДЛЯ САРНЕНСЬКОГО РАЙОНУ!</b>\n\n"
+                    f"🚨 <b>[eRadar] ЗАГРОЗА ДЛЯ САРНЕНСЬКОГО РАЙОНУ!</b>\n\n"
                     f"🎯 <b>Загроза:</b> {d['threat_type']}\n"
                     f"📍 <b>Вектор:</b> {vector_info}"
                     f"{fly_info_block}\n"
-                    f"⏰ <b>Час:</b> {now_str}"
+                    f"⏰ <b>Час:</b> {now_str}\n\n"
+                    f"📡 <i>Джерело: eRadar.app</i>"
                 )
-                logger.warning(f"Нова ціль для Сарн: {d['threat_type']} -> {d['place']}")
+                logger.warning(f"[eRadar] Нова ціль для Сарн: {d['threat_type']} -> {d['place']}")
                 if self.send_to_telegram:
                     self.sender._send_text_message(msg, thread_id=self.thread_id)
 
-        # 3. Нові моніторингові повідомлення (тільки якщо не було надіслано в Dangers)
+        # 3. Нові моніторингові повідомлення eRadar (тільки якщо не було надіслано в Dangers)
         for f in data["feed_events"]:
             fid = str(f.get("id"))
             msg_key = f"{f.get('channel')}_{f.get('tg_message_id')}" if f.get("channel") and f.get("tg_message_id") else None
@@ -399,24 +575,59 @@ class SarnyRadarMonitor:
             text_html = format_telegram_html(text_to_show)
 
             msg = (
-                f"📡 <b>Сарненський район:</b>\n\n"
+                f"📡 <b>[eRadar Моніторинг] Сарненський район:</b>\n\n"
                 f"💬 <i>{text_html}</i>\n\n"
-                f"⏰ <b>Час:</b> {now_str}"
+                f"⏰ <b>Час:</b> {now_str}\n\n"
+                f"📡 <i>Джерело: eRadar Feed</i>"
             )
-            logger.info(f"Нове повідомлення моніторингу: {text_to_show}")
+            logger.info(f"[eRadar Feed] Нове повідомлення: {text_to_show}")
             if self.send_to_telegram:
                 self.sender._send_text_message(msg, thread_id=self.thread_id)
 
+        # 4. Нові цілі від додаткового сервісу КУПОЛ (kupol.in.ua / NEPTUN)
+        for th in data.get("kupol_threats", []):
+            kid = str(th["id"])
+            if kid not in self.seen_kupol_ids:
+                self.seen_kupol_ids.add(kid)
+
+                dist_str = f" (~{th['distance_km']} км від Сарн)" if th.get("distance_km") else ""
+                region_str = f"{th['region']}" if th.get("region") else "Сарненський район"
+                loc_info = f"{region_str}{dist_str}"
+
+                course_block = ""
+                if th.get("course_desc"):
+                    course_block = f"\n🧭 <b>Курс:</b> {th['course_desc']}"
+
+                note_block = ""
+                if th.get("note"):
+                    clean_note = clean_text_line(th["note"])
+                    note_html = format_telegram_html(clean_note)
+                    note_block = f"\n💬 <b>Інформація:</b> {note_html}"
+
+                msg = (
+                    f"🛡 <b>[КУПОЛ / NEPTUN] ЗАГРОЗА ДЛЯ РАЙОНУ!</b>\n\n"
+                    f"🎯 <b>Загроза:</b> {th['threat_type']}\n"
+                    f"📍 <b>Локація:</b> {loc_info}"
+                    f"{course_block}"
+                    f"{note_block}\n"
+                    f"⏰ <b>Час:</b> {now_str}\n\n"
+                    f"📡 <i>Джерело: КУПОЛ (kupol.in.ua)</i>"
+                )
+                logger.warning(f"[КУПОЛ] Нова ціль для Сарн: {th['threat_type']} -> {th.get('note')}")
+                if self.send_to_telegram:
+                    self.sender._send_text_message(msg, thread_id=self.thread_id)
+
     def run_live(self, poll_interval: int = 15):
         """Запускає постійний моніторинг у реальному часі."""
-        logger.info("🛰 Запуск живого моніторингу eRadar для Сарненського району...")
+        logger.info("🛰 Запуск живого моніторингу eRadar + КУПОЛ для Сарненського району...")
         logger.info(f"📌 Цільова ветка (thread_id): {self.thread_id}")
         logger.info(f"⏱ Інтервал перевірки: кожні {poll_interval} сек.")
 
         init_data = self.get_status()
         self.is_alarm_active = init_data["is_alarm"]
         logger.info(f"📌 Поточний статус тривоги: {init_data['alarm_text']}")
-        logger.info(f"🎯 Активних загроз для Сарн зараз: {len(init_data['dangers'])}")
+        logger.info(f"🎯 Активних цілей eRadar для Сарн: {len(init_data['dangers'])}")
+        logger.info(f"🛡 Активних цілей КУПОЛ для Сарн: {len(init_data['kupol_threats'])}")
 
         while True:
             try:
@@ -430,11 +641,13 @@ if __name__ == "__main__":
     monitor = SarnyRadarMonitor(send_to_telegram=True)
     data = monitor.get_status()
     print("=" * 60)
-    print("📍 ДАНІ З ERADAR.APP ДЛЯ САРНЕНСЬКОГО РАЙОНУ:")
+    print("📍 ДАНІ З ERADAR + КУПОЛ ДЛЯ САРНЕНСЬКОГО РАЙОНУ:")
     print(f"Статус тривоги: {data['alarm_text']}")
     print(f"Цільовий Thread ID: {monitor.thread_id}")
-    print(f"Активних цілей у напрямку району: {len(data['dangers'])}")
+    print(f"Активних цілей у напрямку району (eRadar): {len(data['dangers'])}")
+    print(f"Активних цілей у напрямку району (КУПОЛ): {len(data['kupol_threats'])}")
     print("=" * 60)
     # Запуск постійного моніторингу в реальному часі (кожні 15 сек)
     monitor.run_live(poll_interval=15)
+
 
