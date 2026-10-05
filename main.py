@@ -20,6 +20,7 @@ from config import (
     URL_TO_THREAD,
     THREAD_ID_FB_1,
     THREAD_ID_FB_2,
+    THREAD_ID_FB_3,
     IMPERSONATE_BROWSER,
 )
 from facebook import FacebookParser, Storage
@@ -105,6 +106,7 @@ class AutoBot:
         logger.info(f"📌 Чат призначення: {TELEGRAM_CHAT_ID}")
         logger.info(f"📌 Ветка Фейсбук 1: {THREAD_ID_FB_1}")
         logger.info(f"📌 Ветка Фейсбук 2: {THREAD_ID_FB_2}")
+        logger.info(f"📌 Ветка Фейсбук 3: {THREAD_ID_FB_3}")
         logger.info(f"⏱ Інтервал перевірки: кожні {CHECK_INTERVAL_HOURS} год.")
 
         if not TELEGRAM_BOT_TOKEN:
