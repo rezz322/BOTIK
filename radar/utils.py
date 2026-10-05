@@ -18,61 +18,21 @@ MONITORED_REGIONS = {
         "oblast_keywords": ["rivnenska", "рівненськ"],
         "raion_keywords": ["sarnen", "сарненськ"],
         "kupol_raion_id": "сарненський",
+        # Для КУПОЛ — строгий фільтр: тільки якщо загроза
+        # безпосередньо на Сарни (примітка містить ключове слово АБО відстань < 25 км)
+        "kupol_strict_keywords": ["сарн"],
+        "kupol_strict_radius_km": 25.0,
+        # Для eRadar Feed — строгий фільтр: тільки якщо текст містить "сарн"
+        "feed_strict_keywords": ["сарн"],
         "env_thread_key": "THREAD_ID_ALERTS",
-    },
-    "odesa": {
-        "id": "odesa",
-        "name": "Одеса та Одеський район",
-        "short_name": "Одеса",
-        "lat": 46.4825,
-        "lng": 30.7233,
-        "radius_km": 60.0,
-        "keywords": [
-            "одес", "чорноморськ", "южне", "південне", "заток", "овідіополь",
-            "біляївк", "теплодар", "фонтанк", "крижанівк", "таїров", "аркаді",
-            "лиманк", "усатов", "нерубайськ", "дачне", "хаджибей", "паланк"
-        ],
-        "oblast_keywords": ["odeska", "одеськ"],
-        "raion_keywords": ["odes", "одеськ", "одеса"],
-        "kupol_raion_id": "одеський",
-        "env_thread_key": "THREAD_ID_ALERTS_ODESA",
-    },
-    "koryukivka": {
-        "id": "koryukivka",
-        "name": "Корюківка та Корюківський район",
-        "short_name": "Корюківка",
-        "lat": 51.7753,
-        "lng": 32.2472,
-        "radius_km": 55.0,
-        "keywords": [
-            "корюків", "корюков", "холми", "менськ", "мена", "сновськ",
-            "сосниц", "наумівк", "охрамієвич", "перелюб", "сядрин",
-            "бреч", "макошин", "велике устя", "мале устя", "кладьківк", "північ чернігів"
-        ],
-        "oblast_keywords": ["chernihivska", "чернігівськ"],
-        "raion_keywords": ["koriukiv", "koryukiv", "корюківськ", "корюківка"],
-        "kupol_raion_id": "корюківський",
-        "env_thread_key": "THREAD_ID_ALERTS_KORYUKIVKA",
     },
 }
 
-# Сумісність зі старими імпортами Сарн
+# Координати та ключові слова Сарн
 SARNY_LAT = MONITORED_REGIONS["sarny"]["lat"]
 SARNY_LNG = MONITORED_REGIONS["sarny"]["lng"]
 SARNY_RADIUS_KM = MONITORED_REGIONS["sarny"]["radius_km"]
 SARNY_KEYWORDS = MONITORED_REGIONS["sarny"]["keywords"]
-
-# Константи Одеси
-ODESA_LAT = MONITORED_REGIONS["odesa"]["lat"]
-ODESA_LNG = MONITORED_REGIONS["odesa"]["lng"]
-ODESA_RADIUS_KM = MONITORED_REGIONS["odesa"]["radius_km"]
-ODESA_KEYWORDS = MONITORED_REGIONS["odesa"]["keywords"]
-
-# Константи Корюківки
-KORYUKIVKA_LAT = MONITORED_REGIONS["koryukivka"]["lat"]
-KORYUKIVKA_LNG = MONITORED_REGIONS["koryukivka"]["lng"]
-KORYUKIVKA_RADIUS_KM = MONITORED_REGIONS["koryukivka"]["radius_km"]
-KORYUKIVKA_KEYWORDS = MONITORED_REGIONS["koryukivka"]["keywords"]
 
 THREAT_TRANSLATION = {
     "drone": "🛵 БпЛА (Шахед)",
@@ -128,10 +88,6 @@ def line_matches_region(line: str, region_cfg: dict) -> bool:
 
 def line_matches_sarny(line: str) -> bool:
     return line_matches_region(line, MONITORED_REGIONS["sarny"])
-
-
-def line_matches_odesa(line: str) -> bool:
-    return line_matches_region(line, MONITORED_REGIONS["odesa"])
 
 
 def is_bullet_line(s: str) -> bool:

@@ -7,8 +7,6 @@ from config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     THREAD_ID_ALERTS,
-    THREAD_ID_ALERTS_ODESA,
-    THREAD_ID_ALERTS_KORYUKIVKA,
 )
 from telegram_sender import TelegramSender
 from radar.utils import (
@@ -26,10 +24,10 @@ logger = logging.getLogger("RadarMonitor")
 
 class SarnyRadarMonitor:
     """
-    Монітор повітряних загроз для кількох регіонів (Сарненський район, Одеса, Корюківка):
+    Монітор повітряних загроз для Сарненського району:
     - Отримує дані від eRadar (eradar.app) та КУПОЛ (kupol.in.ua / NEPTUN).
-    - Перевіряє статус тривоги (alerts.in.ua + бекапи) окремо для кожного регіону.
-    - Відправляє повідомлення у Telegram із чітким маркуванням сервісу та регіону.
+    - Перевіряє статус тривоги (alerts.in.ua + бекапи) для Сарненського району.
+    - Відправляє повідомлення у Telegram із чітким маркуванням сервісу.
     """
 
     def __init__(self, send_to_telegram: bool = True):
@@ -44,11 +42,9 @@ class SarnyRadarMonitor:
         # Конфігурація регіонів
         self.regions = MONITORED_REGIONS
 
-        # Прив'язка цільових гілок Telegram до кожного регіону
+        # Прив'язка цільових гілок Telegram
         self.region_threads = {
             "sarny": THREAD_ID_ALERTS,
-            "odesa": THREAD_ID_ALERTS_ODESA or THREAD_ID_ALERTS,
-            "koryukivka": THREAD_ID_ALERTS_KORYUKIVKA or THREAD_ID_ALERTS,
         }
 
         # Для зворотної сумісності

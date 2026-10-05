@@ -68,13 +68,7 @@ def main():
                         assigned = "THREAD_ID_FB_1"
                     elif "2" in ident or "фейсбук 2" in ident or "fb2" in ident or "поліц" in ident:
                         assigned = "THREAD_ID_FB_2"
-                    elif "чигур" in ident or "фейсбук 3" in ident or "fb3" in ident or "тест фейсбук" in ident or "тест" in ident or ("3" in ident and "тривог" not in ident):
-                        assigned = "THREAD_ID_FB_3"
-                    elif "одес" in ident and ("тривог" in ident or "тревог" in ident or "радар" in ident):
-                        assigned = "THREAD_ID_ALERTS_ODESA"
-                    elif "корюк" in ident or "черніг" in ident:
-                        assigned = "THREAD_ID_ALERTS_KORYUKIVKA"
-                    elif "тривог" in ident or "тревог" in ident or "радар" in ident:
+                    elif "тривог" in ident or "тревог" in ident or "радар" in ident or "сарн" in ident:
                         assigned = "THREAD_ID_ALERTS"
 
                     if assigned:

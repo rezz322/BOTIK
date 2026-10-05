@@ -20,7 +20,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копіювання файлів проєкту
 COPY . .
 
-# Робимо стартовий скрипт виконуваним
-RUN chmod +x start.sh
-
-CMD ["./start.sh"]
+CMD ["python", "-u", "runner.py"]

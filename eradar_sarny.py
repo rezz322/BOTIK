@@ -22,7 +22,7 @@ if __name__ == "__main__":
     monitor = SarnyRadarMonitor(send_to_telegram=True)
     data = monitor.get_status()
     print("=" * 65)
-    print("📍 МОНІТОРИНГ ЗАГРОЗ ERADAR + КУПОЛ (САРНИ, ОДЕСА ТА КОРЮКІВКА):")
+    print("📍 МОНІТОРИНГ ЗАГРОЗ ERADAR + КУПОЛ (САРНИ ТА РАЙОН):")
     for r_id, r_cfg in monitor.regions.items():
         is_al = data["alarms_by_region"].get(r_id, False)
         al_txt = "🔴 ТРИВОГА" if is_al else "🟢 ВІДБІЙ"

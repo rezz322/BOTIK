@@ -66,6 +66,17 @@ class KupolClient:
                         is_target_area = (dist <= r_cfg["radius_km"]) or any(k in comb_text for k in r_cfg.get("keywords", []))
 
                         if is_target_area:
+                            # Строгий фільтр КУПОЛ: пропускаємо якщо загроза не безпосередньо на район
+                            strict_keys = r_cfg.get("kupol_strict_keywords", [])
+                            strict_radius = r_cfg.get("kupol_strict_radius_km", r_cfg["radius_km"])
+                            if strict_keys or strict_radius < r_cfg["radius_km"]:
+                                is_strict = (dist <= strict_radius) or any(k in comb_text for k in strict_keys)
+                                if not is_strict:
+                                    logger.debug(
+                                        f"[КУПОЛ] Пропускаємо загрозу {tid} для {r_cfg['short_name']}: "
+                                        f"не відповідає строгому фільтру (dist={round(dist,1)} км, text='{comb_text[:60]}')"
+                                    )
+                                    continue
                             results[r_id].append({
                                 "id": f"{tid}_{r_id}",
                                 "raw_id": tid,

@@ -115,6 +115,15 @@ class ERadarClient:
                     for r_id, r_cfg in regions.items():
                         filtered_text = filter_relevant_lines_for_region(raw_text, r_cfg)
                         if filtered_text:
+                            # Строгий фільтр Feed: пропускаємо якщо в тексті немає
+                            # прямого згадування Сарн (тільки Дубровиця, Рокитне тощо)
+                            strict_feed_keys = r_cfg.get("feed_strict_keywords", [])
+                            if strict_feed_keys and not any(k in filtered_text.lower() for k in strict_feed_keys):
+                                logger.debug(
+                                    f"[eRadar Feed] Пропускаємо пост {fid} для {r_cfg['short_name']}: "
+                                    f"немає строгих ключових слів у тексті"
+                                )
+                                continue
                             item_copy = dict(item)
                             item_copy["filtered_text"] = filtered_text
                             item_copy["region_id"] = r_id
