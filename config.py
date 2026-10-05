@@ -22,6 +22,7 @@ THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))              # г
 THREAD_ID_FB_3 = _parse_thread_id(os.getenv("THREAD_ID_FB_3"))              # гілка "Фейсбук 3"
 THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни або спільна)
 THREAD_ID_ALERTS_ODESA = _parse_thread_id(os.getenv("THREAD_ID_ALERTS_ODESA"))  # окрема гілка для Одеси (якщо задана)
+THREAD_ID_ALERTS_KORYUKIVKA = _parse_thread_id(os.getenv("THREAD_ID_ALERTS_KORYUKIVKA"))  # окрема гілка для Корюківки (якщо задана)
 
 # Список посилань на профілі Facebook для моніторингу
 TARGET_URLS = [

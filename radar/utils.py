@@ -37,6 +37,23 @@ MONITORED_REGIONS = {
         "kupol_raion_id": "одеський",
         "env_thread_key": "THREAD_ID_ALERTS_ODESA",
     },
+    "koryukivka": {
+        "id": "koryukivka",
+        "name": "Корюківка та Корюківський район",
+        "short_name": "Корюківка",
+        "lat": 51.7753,
+        "lng": 32.2472,
+        "radius_km": 55.0,
+        "keywords": [
+            "корюків", "корюков", "холми", "менськ", "мена", "сновськ",
+            "сосниц", "наумівк", "охрамієвич", "перелюб", "сядрин",
+            "бреч", "макошин", "велике устя", "мале устя", "кладьківк", "північ чернігів"
+        ],
+        "oblast_keywords": ["chernihivska", "чернігівськ"],
+        "raion_keywords": ["koriukiv", "koryukiv", "корюківськ", "корюківка"],
+        "kupol_raion_id": "корюківський",
+        "env_thread_key": "THREAD_ID_ALERTS_KORYUKIVKA",
+    },
 }
 
 # Сумісність зі старими імпортами Сарн
@@ -50,6 +67,12 @@ ODESA_LAT = MONITORED_REGIONS["odesa"]["lat"]
 ODESA_LNG = MONITORED_REGIONS["odesa"]["lng"]
 ODESA_RADIUS_KM = MONITORED_REGIONS["odesa"]["radius_km"]
 ODESA_KEYWORDS = MONITORED_REGIONS["odesa"]["keywords"]
+
+# Константи Корюківки
+KORYUKIVKA_LAT = MONITORED_REGIONS["koryukivka"]["lat"]
+KORYUKIVKA_LNG = MONITORED_REGIONS["koryukivka"]["lng"]
+KORYUKIVKA_RADIUS_KM = MONITORED_REGIONS["koryukivka"]["radius_km"]
+KORYUKIVKA_KEYWORDS = MONITORED_REGIONS["koryukivka"]["keywords"]
 
 THREAT_TRANSLATION = {
     "drone": "🛵 БпЛА (Шахед)",

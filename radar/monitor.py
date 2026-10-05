@@ -8,6 +8,7 @@ from config import (
     TELEGRAM_CHAT_ID,
     THREAD_ID_ALERTS,
     THREAD_ID_ALERTS_ODESA,
+    THREAD_ID_ALERTS_KORYUKIVKA,
 )
 from telegram_sender import TelegramSender
 from radar.utils import (
@@ -25,7 +26,7 @@ logger = logging.getLogger("RadarMonitor")
 
 class SarnyRadarMonitor:
     """
-    Монітор повітряних загроз для кількох регіонів (Сарненський район та Одеса):
+    Монітор повітряних загроз для кількох регіонів (Сарненський район, Одеса, Корюківка):
     - Отримує дані від eRadar (eradar.app) та КУПОЛ (kupol.in.ua / NEPTUN).
     - Перевіряє статус тривоги (alerts.in.ua + бекапи) окремо для кожного регіону.
     - Відправляє повідомлення у Telegram із чітким маркуванням сервісу та регіону.
@@ -47,6 +48,7 @@ class SarnyRadarMonitor:
         self.region_threads = {
             "sarny": THREAD_ID_ALERTS,
             "odesa": THREAD_ID_ALERTS_ODESA or THREAD_ID_ALERTS,
+            "koryukivka": THREAD_ID_ALERTS_KORYUKIVKA or THREAD_ID_ALERTS,
         }
 
         # Для зворотної сумісності
@@ -288,6 +290,30 @@ class SarnyRadarMonitor:
             e_count = len(init_data["dangers_by_region"].get(r_id, []))
             k_count = len(init_data["kupol_by_region"].get(r_id, []))
             logger.info(f"   [{r_cfg['short_name']}] Тривога: {alarm_text} | Цілей eRadar: {e_count}, КУПОЛ: {k_count}")
+
+        # Прогрів (пре-сідінг): запам'ятовуємо всю наявну історію, щоб не спамити старими постами при старті
+        for d in init_data["dangers"]:
+            self.seen_danger_ids.add(str(d["id"]))
+            if d.get("last_message_id"):
+                self.seen_feed_ids.add(str(d["last_message_id"]))
+            if d.get("channel") and d.get("tg_message_id"):
+                self.seen_message_keys.add(f"{d['channel']}_{d['tg_message_id']}")
+
+        for f in init_data["feed_events"]:
+            fid = str(f.get("id"))
+            r_id = f.get("region_id", "")
+            self.seen_feed_ids.add(fid)
+            self.seen_feed_ids.add(f"{fid}_{r_id}")
+            if f.get("channel") and f.get("tg_message_id"):
+                self.seen_message_keys.add(f"{f['channel']}_{f['tg_message_id']}")
+                self.seen_message_keys.add(f"{f['channel']}_{f['tg_message_id']}_{r_id}")
+
+        for th in init_data["kupol_threats"]:
+            self.seen_kupol_ids.add(str(th["id"]))
+            if th.get("raw_id"):
+                self.seen_kupol_ids.add(str(th["raw_id"]))
+
+        logger.info(f"🛡 Пре-сідінг завершено: збережено {len(self.seen_feed_ids)} постів та {len(self.seen_kupol_ids)} цілей. Спаму не буде!")
 
         while True:
             try:

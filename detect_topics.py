@@ -72,6 +72,8 @@ def main():
                         assigned = "THREAD_ID_FB_3"
                     elif "одес" in ident and ("тривог" in ident or "тревог" in ident or "радар" in ident):
                         assigned = "THREAD_ID_ALERTS_ODESA"
+                    elif "корюк" in ident or "черніг" in ident:
+                        assigned = "THREAD_ID_ALERTS_KORYUKIVKA"
                     elif "тривог" in ident or "тревог" in ident or "радар" in ident:
                         assigned = "THREAD_ID_ALERTS"
 

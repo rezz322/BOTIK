@@ -101,6 +101,11 @@ class ERadarClient:
                     tg_id = item.get("tg_message_id")
                     msg_key = f"{ch}_{tg_id}" if ch and tg_id else None
 
+                    # Фільтруємо автоматичні ботові канали сигналів (UkraineAlarmSignal),
+                    # які створюють спам типу "Жовтий рівень", "Відбій по району" тощо.
+                    if ch == "UkraineAlarmSignal":
+                        continue
+
                     # Якщо це повідомлення вже виявлено як активна ціль (Danger), не дублюємо у Feed!
                     if fid in danger_feed_ids or (msg_key and msg_key in danger_message_keys):
                         continue
