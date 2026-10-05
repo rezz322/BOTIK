@@ -22,9 +22,8 @@ from config import (
     THREAD_ID_FB_2,
     IMPERSONATE_BROWSER,
 )
-from facebook_parser import FacebookParser
+from facebook import FacebookParser, Storage
 from telegram_sender import TelegramSender
-from storage import Storage
 
 # Логування
 logging.basicConfig(
