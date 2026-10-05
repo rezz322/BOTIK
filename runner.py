@@ -12,9 +12,9 @@ logger = logging.getLogger("Runner")
 
 
 def main():
-    logger.info("🚀 Запуск Facebook та eRadar/Купол ботів...")
+    logger.info("🚀 Запуск Facebook та UkraineAlarm ботів...")
 
-    # Запускаємо eRadar/Купол моніторинг
+    # Запускаємо UkraineAlarm моніторинг
     proc_radar = subprocess.Popen(
         [sys.executable, "-u", "eradar_sarny.py"],
         stdout=sys.stdout,
@@ -43,7 +43,7 @@ def main():
     # Очікуємо роботу процесів
     while True:
         if proc_radar.poll() is not None:
-            logger.error(f"⚠️ Процес eRadar несподівано завершився з кодом {proc_radar.returncode}!")
+            logger.error(f"⚠️ Процес UkraineAlarm несподівано завершився з кодом {proc_radar.returncode}!")
             proc_fb.terminate()
             break
         if proc_fb.poll() is not None:

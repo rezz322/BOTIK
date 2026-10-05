@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import os
 from dotenv import load_dotenv
 
@@ -25,15 +25,9 @@ THREAD_ID_FB_1 = _parse_thread_id(os.getenv("THREAD_ID_FB_1"))              # г
 THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))              # гілка "Фейсбук 2"
 THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни / Радар)
 
-# Режим моніторингу КУПОЛ (kupol.in.ua / NEPTUN):
-# "all_ukraine" - моніторинг цілей по всій території України
-# "sarny"       - моніторинг цілей тільки для Сарн та району
-KUPOL_MODE = os.getenv("KUPOL_MODE", "all_ukraine").strip().lower()
-
-# Режим моніторингу eRadar:
-# "sarny"       - моніторинг для Сарн та району
-# "all_ukraine" - моніторинг по всій Україні
-ERADAR_MODE = os.getenv("ERADAR_MODE", "sarny").strip().lower()
+# Налаштування моніторингу map.ukrainealarm.com:
+RADAR_RADIUS_KM = float(os.getenv("RADAR_RADIUS_KM", "75"))  # Радіус виявлення цілей навколо Сарн та громад (км)
+ALERTS_POLL_INTERVAL = int(os.getenv("ALERTS_POLL_INTERVAL", "10"))  # Інтервал опитування (секунди)
 
 # Список посилань на профілі Facebook для моніторингу
 TARGET_URLS = [

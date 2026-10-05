@@ -1,6 +1,5 @@
+# -*- coding: utf-8 -*-
 from radar.monitor import SarnyRadarMonitor
-from radar.kupol_client import KupolClient
-from radar.eradar_client import ERadarClient
-from radar.alerts_client import AlertsClient
+from radar.ukrainealarm_client import UkraineAlarmClient
 
-__all__ = ["SarnyRadarMonitor", "KupolClient", "ERadarClient", "AlertsClient"]
+__all__ = ["SarnyRadarMonitor", "UkraineAlarmClient"]

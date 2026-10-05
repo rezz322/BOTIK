@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import sys
 import logging
 
@@ -11,6 +11,8 @@ if sys.platform == "win32":
         pass
 
 from radar.monitor import SarnyRadarMonitor
+from radar.utils import SARNY_COMMUNITIES
+from config import ALERTS_POLL_INTERVAL, RADAR_RADIUS_KM
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,21 +22,20 @@ logger = logging.getLogger("RadarMonitor")
 
 
 if __name__ == "__main__":
-    monitor = SarnyRadarMonitor(send_to_telegram=True)
+    monitor = SarnyRadarMonitor(send_to_telegram=True, radar_radius_km=RADAR_RADIUS_KM)
     data = monitor.get_status()
-    mode_text = "ВСЯ УКРАЇНА" if monitor.kupol_mode == "all_ukraine" else "ТІЛЬКИ САРНИ"
+
+    is_alarm = data["overall_alarm"]
+    alarm_txt = "🔴 ТРИВОГА" if is_alarm else "🟢 ВІДБІЙ"
+
     print("=" * 65)
-    print("📍 МОНІТОРИНГ ЗАГРОЗ ERADAR + КУПОЛ:")
-    print(f"⚙️  Режим роботи КУПОЛ: [{mode_text}] (зміна у .env: KUPOL_MODE=all_ukraine або sarny)")
-    for r_id, r_cfg in monitor.regions.items():
-        is_al = data["alarms_by_region"].get(r_id, False)
-        al_txt = "🔴 ТРИВОГА" if is_al else "🟢 ВІДБІЙ"
-        d_cnt = len(data["dangers_by_region"].get(r_id, []))
-        k_cnt = len(data.get("kupol_threats", []))
-        th_id = monitor.get_thread_for_region(r_id)
-        print(f"👉 Регіон: [{r_cfg['name']}] (Thread ID: {th_id})")
-        print(f"   Статус тривоги: {al_txt}")
-        print(f"   eRadar цілей (район): {d_cnt} | КУПОЛ цілей ({mode_text}): {k_cnt}")
+    print("📍 МОНІТОРИНГ ТРИВОГ ТА РАДАРУ: MAP.UKRAINEALARM.COM")
+    print(f"👉 Сарненський район: {alarm_txt}")
+    print(f"   Область: {'ТАК' if data['is_oblast_alarm'] else 'НІ'} | Район: {'ТАК' if data['is_district_alarm'] else 'НІ'}")
+    print(f"   Громад під тривогою: {len(data['active_communities'])} із {len(SARNY_COMMUNITIES)}")
+    print(f"   Цілей поблизу району (<={RADAR_RADIUS_KM} км): {len(data['targets_near_district'])}")
+    print(f"   Всього цілей на карті України: {len(data['targets'])}")
     print("=" * 65)
-    # Запуск постійного моніторингу в реальному часі (кожні 15 сек)
-    monitor.run_live(poll_interval=15)
+
+    # Запуск постійного моніторингу в реальному часі
+    monitor.run_live(poll_interval=ALERTS_POLL_INTERVAL)
