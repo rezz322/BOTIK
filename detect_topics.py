@@ -21,10 +21,14 @@ def main():
     print("=" * 65)
     print("🤖 ДЕТЕКТОР ВЕТОК (TOPICS) ДЛЯ '12312312 Chat'")
     print("=" * 65)
-    print("1. Додайте вашого бота в групу '12312312 Chat' як Адміністратора.")
-    print("2. Напишіть повідомлення '1' або 'фейсбук 1' у першу гілку.")
-    print("3. Напишіть повідомлення '2' або 'фейсбук 2' у другу гілку.")
-    print("4. Напишіть повідомлення '3' або 'тривога' у гілку тривог.")
+    print("1. Додайте вашого бота в групу як Адміністратора.")
+    print("2. Напишіть повідомлення у кожну гілку, яку хочете визначити:")
+    print("   • '1' або 'фейсбук 1'  -> THREAD_ID_FB_1")
+    print("   • '2' або 'фейсбук 2'  -> THREAD_ID_FB_2")
+    print("   • '3' або 'фейсбук 3'  -> THREAD_ID_FB_3")
+    print("   • 'тривога' або 'сарни' -> THREAD_ID_ALERTS")
+    print("   • 'одеса'              -> THREAD_ID_ALERTS_ODESA")
+    print("   (або будь-який текст — скрипт покаже точний Thread ID кожної гілки)")
     print("=" * 65)
     print("Очікую повідомлення з гілок... (Натисніть Ctrl+C для виходу)\n")
 
@@ -82,13 +86,12 @@ def main():
                     for k, v in found_topics.items():
                         set_key(".env", k, str(v))
 
-                    if len(found_topics) == 3:
-                        print("🎉 ВСІ 3 ВЕТКИ УСПІШНО ВИЯВЛЕНО ТА ЗБЕРЕЖЕНО В .env:")
-                        for k, v in found_topics.items():
-                            print(f"   {k} = {v}")
-                        print(f"   TELEGRAM_CHAT_ID = {target_chat_id}")
-                        print("\nНалаштування завершено! Можна запускати main.py та eradar_sarny.py")
-                        return
+                    print("📊 Знайдені наразі змінні у .env:")
+                    for k, v in found_topics.items():
+                        print(f"   {k} = {v}")
+                    print(f"   TELEGRAM_CHAT_ID = {target_chat_id}")
+                    print("-" * 65)
+
 
             time.sleep(1)
         except KeyboardInterrupt:
