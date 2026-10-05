@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import logging
 from radar.utils import (
     MONITORED_REGIONS,
@@ -10,14 +11,78 @@ logger = logging.getLogger("ERadarClient")
 
 
 class ERadarClient:
-    """Клієнт сервісу eRadar (eradar.app)."""
+    """Клієнт офіційного сервісу eRadar (eradar.app)."""
 
     def __init__(self, session):
         self.session = session
 
+    def check_alarm_for_region(self, region_cfg: dict) -> bool | None:
+        """
+        Перевіряє офіційний статус повітряної тривоги для регіону через прямий API eRadar (/api/alerts).
+        Повертає:
+          True  - тривога активна
+          False - тривоги немає (ВІДБІЙ)
+          None  - помилка мережі
+        """
+        try:
+            r = self.session.get("https://eradar.app/api/alerts", impersonate="chrome124", timeout=10)
+            if r.status_code == 200:
+                active_list = r.json().get("active", [])
+                oblast_keys = [k.lower() for k in region_cfg.get("oblast_keywords", [])]
+                raion_keys = [k.lower() for k in region_cfg.get("raion_keywords", [])]
+                keywords = [k.lower() for k in region_cfg.get("keywords", [])]
+
+                for act in active_list:
+                    act_l = str(act).lower()
+                    if any(k in act_l for k in oblast_keys) or any(k in act_l for k in raion_keys) or any(k in act_l for k in keywords):
+                        return True
+                return False
+        except Exception as e:
+            logger.error(f"Помилка отримання статусів тривоги з eRadar (/api/alerts) для {region_cfg.get('name')}: {e}")
+
+        # Якщо прямий запит до /api/alerts не вдався, пробуємо стрічку UkraineAlarmSignal
+        return self.check_alarm_signal_for_region(region_cfg)
+
+    def check_alarm_signal_for_region(self, region_cfg: dict) -> bool | None:
+        """Запасна перевірка стрічки офіційних сигналів @UkraineAlarmSignal у eRadar для конкретного регіону."""
+        try:
+            r = self.session.get("https://eradar.app/api/feed?limit=50", impersonate="chrome124", timeout=10)
+            if r.status_code == 200:
+                feed = r.json().get("feed", [])
+                raion_keywords = [k.lower() for k in region_cfg.get("raion_keywords", [])]
+                oblast_keywords = [k.lower() for k in region_cfg.get("oblast_keywords", [])]
+                target_keys = raion_keywords + oblast_keywords
+
+                for item in feed:
+                    if item.get("channel") == "UkraineAlarmSignal":
+                        txt = (item.get("text") or "").lower()
+                        # Перевіряємо по блоках рядків, щоб не сплутати початок тривоги в одному районі з відбоєм в іншому
+                        if any(k in txt for k in target_keys):
+                            # Розбиваємо повідомлення на частини за маркерами 🔴 та 🟢
+                            parts = txt.split("**")
+                            for part in parts:
+                                if any(k in part for k in target_keys):
+                                    if "🟢" in part or "відбій" in part:
+                                        return False
+                                    if "🔴" in part or "🟡" in part or "тривог" in part:
+                                        return True
+                            # Загальна перевірка якщо без блоків
+                            if "🟢" in txt or "відбій" in txt:
+                                if "🔴" not in txt and "🟡" not in txt:
+                                    return False
+                            if "🔴" in txt or "🟡" in txt:
+                                return True
+        except Exception as e:
+            logger.error(f"Помилка отримання стрічки UkraineAlarmSignal для {region_cfg['name']}: {e}")
+        return None
+
+    def check_alarm_signal_feed(self) -> bool | None:
+        """Сумісність зі старим кодом."""
+        return self.check_alarm_for_region(MONITORED_REGIONS["sarny"])
+
     def get_dangers_for_regions(self, regions: dict = None) -> tuple[dict[str, list], set, set]:
         """
-        Отримує активні загрози з eRadar та розподіляє їх по регіонах (Сарни, Одеса тощо).
+        Отримує активні загрози eRadar (Dangers) та розподіляє їх по регіонах.
         Виконує лише 1 запит до API eRadar.
         Повертає: (словник {region_id: [цілі]}, множину last_message_id, множину message_keys).
         """
@@ -83,7 +148,7 @@ class ERadarClient:
         regions: dict = None,
     ) -> dict[str, list]:
         """
-        Отримує стрічку моніторингу eRadar та фільтрує її для кожного регіону (Сарни, Одеса тощо).
+        Отримує стрічку моніторингу eRadar та фільтрує її для кожного регіону (Сарни тощо).
         Виконує лише 1 запит до API.
         """
         if regions is None:
@@ -102,7 +167,7 @@ class ERadarClient:
                     msg_key = f"{ch}_{tg_id}" if ch and tg_id else None
 
                     # Фільтруємо автоматичні ботові канали сигналів (UkraineAlarmSignal),
-                    # які створюють спам типу "Жовтий рівень", "Відбій по району" тощо.
+                    # щоб не спамити у стрічку повідомлень
                     if ch == "UkraineAlarmSignal":
                         continue
 
@@ -115,14 +180,8 @@ class ERadarClient:
                     for r_id, r_cfg in regions.items():
                         filtered_text = filter_relevant_lines_for_region(raw_text, r_cfg)
                         if filtered_text:
-                            # Строгий фільтр Feed: пропускаємо якщо в тексті немає
-                            # прямого згадування Сарн (тільки Дубровиця, Рокитне тощо)
                             strict_feed_keys = r_cfg.get("feed_strict_keywords", [])
                             if strict_feed_keys and not any(k in filtered_text.lower() for k in strict_feed_keys):
-                                logger.debug(
-                                    f"[eRadar Feed] Пропускаємо пост {fid} для {r_cfg['short_name']}: "
-                                    f"немає строгих ключових слів у тексті"
-                                )
                                 continue
                             item_copy = dict(item)
                             item_copy["filtered_text"] = filtered_text
@@ -143,26 +202,3 @@ class ERadarClient:
         """Сумісність зі старим кодом."""
         by_reg = self.get_feed_for_regions(danger_feed_ids, danger_message_keys, MONITORED_REGIONS)
         return by_reg.get("sarny", [])
-
-    def check_alarm_signal_for_region(self, region_cfg: dict) -> bool | None:
-        """Перевірка стрічки офіційних сигналів @UkraineAlarmSignal у eRadar для конкретного регіону."""
-        try:
-            r = self.session.get("https://eradar.app/api/feed?limit=50", impersonate="chrome124", timeout=10)
-            if r.status_code == 200:
-                feed = r.json().get("feed", [])
-                raion_keywords = region_cfg.get("raion_keywords", [])
-                for item in feed:
-                    if item.get("channel") == "UkraineAlarmSignal":
-                        txt = (item.get("text") or "").lower()
-                        if any(k in txt for k in raion_keywords):
-                            if "🟢" in txt or "відбій" in txt:
-                                return False
-                            if "🔴" in txt or "🟡" in txt or "тривог" in txt:
-                                return True
-        except Exception as e:
-            logger.error(f"Помилка отримання стрічки UkraineAlarmSignal для {region_cfg['name']}: {e}")
-        return None
-
-    def check_alarm_signal_feed(self) -> bool | None:
-        """Сумісність зі старим кодом."""
-        return self.check_alarm_signal_for_region(MONITORED_REGIONS["sarny"])

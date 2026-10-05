@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import math
 import html
 import re
@@ -10,20 +11,17 @@ MONITORED_REGIONS = {
         "short_name": "Сарни",
         "lat": 51.3378,
         "lng": 26.6344,
-        "radius_km": 55.0,
+        "radius_km": 60.0,
         "keywords": [
             "сарн", "дубровиц", "рокитн", "клесів", "степань", "немович",
             "вири", "висоцьк", "миляцьк", "березн", "костопіль", "північ рівнен"
         ],
-        "oblast_keywords": ["rivnenska", "рівненськ"],
-        "raion_keywords": ["sarnen", "сарненськ"],
+        "oblast_keywords": ["rivnenska", "рівненськ", "рівне", "rivne"],
+        "raion_keywords": ["sarnen", "сарненськ", "сарни"],
         "kupol_raion_id": "сарненський",
-        # Для КУПОЛ — строгий фільтр: тільки якщо загроза
-        # безпосередньо на Сарни (примітка містить ключове слово АБО відстань < 25 км)
-        "kupol_strict_keywords": ["сарн"],
-        "kupol_strict_radius_km": 25.0,
-        # Для eRadar Feed — строгий фільтр: тільки якщо текст містить "сарн"
-        "feed_strict_keywords": ["сарн"],
+        "kupol_strict_keywords": [],
+        "kupol_strict_radius_km": 60.0,
+        "feed_strict_keywords": [],
         "env_thread_key": "THREAD_ID_ALERTS",
     },
 }
@@ -41,6 +39,7 @@ THREAT_TRANSLATION = {
     "kab": "💣 КАБ (керована авіабомба)",
     "aviation": "✈️ Тактична авіація",
     "recon": "🛰 Розвідувальний БпЛА",
+    "fpv": "🛸 FPV-дрон",
     "unknown": "⚠️ Повітряна загроза",
 }
 
@@ -78,6 +77,29 @@ def heading_to_compass(deg) -> str:
         return f"{round(float(deg))}° ({compass[val]})"
     except Exception:
         return f"{deg}°"
+
+
+def extract_kupol_location(note: str, region_name: str) -> str:
+    """
+    Визначає найбільш інформативну назву локації для загрози КУПОЛ.
+    Якщо regionNameUk порожній, витягує назву населеного пункту/області з noteUk.
+    """
+    if region_name and region_name.strip():
+        return region_name.strip()
+    if not note:
+        return "Україна"
+    clean_n = clean_text_line(note)
+    if "—" in clean_n:
+        part = clean_n.split("—", 1)[1].split(".")[0].strip()
+        if part:
+            return part
+    if "курсом на" in clean_n.lower():
+        idx = clean_n.lower().find("курсом на")
+        part = clean_n[idx:].split(".")[0].strip()
+        if part:
+            return part
+    first_sentence = clean_n.split(".")[0].strip()
+    return first_sentence if first_sentence else "Україна"
 
 
 def line_matches_region(line: str, region_cfg: dict) -> bool:
@@ -128,7 +150,7 @@ def clean_text_line(s: str) -> str:
 
 def filter_relevant_lines_for_region(text: str, region_cfg: dict) -> str:
     """
-    Фільтрує текст моніторингу по рядках для обраного регіону (Сарни або Одеса).
+    Фільтрує текст моніторингу по рядках для обраного регіону (Сарни тощо).
     """
     if not text:
         return ""
@@ -214,10 +236,10 @@ def format_telegram_html(text: str) -> str:
 
 
 def format_duration(total_seconds: float) -> str:
-    """Форматує тривалість тривоги у людиночитабельний вигляд."""
+    """Форматує тривалість тривоги у безпечний для Telegram HTML вигляд (без небезпечних символів <)."""
     total_minutes = int(total_seconds // 60)
     if total_minutes < 1:
-        return "< 1 хв."
+        return "менше 1 хв."
     hours = total_minutes // 60
     mins = total_minutes % 60
     if hours > 0:

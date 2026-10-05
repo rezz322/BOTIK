@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import os
 from dotenv import load_dotenv
 
@@ -13,13 +14,26 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", TELEGRAM_CHANNEL)
 
 # ID гілок (message_thread_id) для окремих тем
 def _parse_thread_id(val):
-    if val and str(val).strip().lstrip("-").isdigit():
-        return int(str(val).strip())
+    if not val:
+        return None
+    cleaned = str(val).strip().strip("'\"")
+    if cleaned.lstrip("-").isdigit():
+        return int(cleaned)
     return None
 
 THREAD_ID_FB_1 = _parse_thread_id(os.getenv("THREAD_ID_FB_1"))              # гілка "Фейсбук 1"
 THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))              # гілка "Фейсбук 2"
-THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни)
+THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни / Радар)
+
+# Режим моніторингу КУПОЛ (kupol.in.ua / NEPTUN):
+# "all_ukraine" - моніторинг цілей по всій території України
+# "sarny"       - моніторинг цілей тільки для Сарн та району
+KUPOL_MODE = os.getenv("KUPOL_MODE", "all_ukraine").strip().lower()
+
+# Режим моніторингу eRadar:
+# "sarny"       - моніторинг для Сарн та району
+# "all_ukraine" - моніторинг по всій Україні
+ERADAR_MODE = os.getenv("ERADAR_MODE", "sarny").strip().lower()
 
 # Список посилань на профілі Facebook для моніторингу
 TARGET_URLS = [
@@ -39,13 +53,13 @@ URL_TO_THREAD = {
     TARGET_URLS[1]: THREAD_ID_FB_2,
 }
 
-# Інтервал перевірки (в годинах)
+# Інтервал перевірки (в годинах) для Facebook
 CHECK_INTERVAL_HOURS = int(os.getenv("CHECK_INTERVAL_HOURS", "1"))
 
 # Чи відправляти пости, знайдені при першому запуску
 SEND_INITIAL_POSTS = os.getenv("SEND_INITIAL_POSTS", "True").lower() in ("true", "1", "yes")
 
-# Файл збереження вже надісланих постів
+# Файл збереження вже надісланих постів Facebook
 SEEN_POSTS_FILE = os.getenv("SEEN_POSTS_FILE", "seen_posts.json")
 
 # Опціональні Facebook cookies

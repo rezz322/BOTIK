@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import logging
 from radar.utils import MONITORED_REGIONS
 
@@ -5,74 +6,108 @@ logger = logging.getLogger("AlertsClient")
 
 
 class AlertsClient:
-    """Клієнт перевірки статусу повітряної тривоги для моніторингових регіонів (Сарни, Одеса тощо)."""
+    """
+    Клієнт перевірки статусу повітряної тривоги.
+    Використовує узгодження статусів від прямих API eRadar та КУПОЛ
+    із резервним джерелом alerts.in.ua.
+    """
 
     def __init__(self, session, eradar_client=None, kupol_client=None):
         self.session = session
         self.eradar_client = eradar_client
         self.kupol_client = kupol_client
 
+    def _check_alerts_in_ua_for_region(self, region_cfg: dict, cached_md: str = None) -> bool | None:
+        """Резервна перевірка через alerts.in.ua."""
+        text = cached_md
+        if text is None:
+            try:
+                r = self.session.get("https://api.alerts.in.ua/v3/alerts/active.md", impersonate="chrome124", timeout=10)
+                if r.status_code == 200:
+                    text = r.text
+            except Exception as e:
+                logger.error(f"Помилка запиту до alerts.in.ua: {e}")
+                return None
+
+        if not text:
+            return None
+
+        sec3_idx = text.find("## 3. CURRENT WARNING STATUS")
+        sec4_idx = text.find("## 4.", sec3_idx) if sec3_idx != -1 else -1
+        sec3 = text[sec3_idx:sec4_idx] if sec3_idx != -1 and sec4_idx != -1 else text[sec3_idx:]
+
+        oblast_keys = [k.lower() for k in region_cfg.get("oblast_keywords", [])]
+        raion_keys = [k.lower() for k in region_cfg.get("raion_keywords", [])]
+
+        in_oblast = False
+        in_raion = False
+
+        for para in sec3.split("\n\n"):
+            para_s = para.strip().lower()
+            if any(k in para_s for k in oblast_keys):
+                in_oblast = True
+                if any(rk in para_s for rk in raion_keys) or "all areas" in para_s or "всі райони" in para_s or "whole oblast" in para_s:
+                    in_raion = True
+                    break
+
+        if in_oblast:
+            return in_raion
+        return False
+
     def check_alarms_for_regions(self, regions: dict = None) -> dict[str, bool]:
         """
-        Перевіряє статус повітряної тривоги для всіх зазначених регіонів (Сарни, Одеса...).
-        Отримує дані з alerts.in.ua за 1 спільний запит.
+        Перевіряє статус повітряної тривоги для всіх моніторингових регіонів (Сарни тощо).
+        Логіка:
+          1. Запитує прямий API eRadar (/api/alerts)
+          2. Запитує прямий API КУПОЛ (/api/alerts/active)
+          3. Якщо хоча б один із сервісів фіксує активну тривогу для району/області -> True.
+          4. Якщо обидва підтверджують відсутність тривоги -> False (ВІДБІЙ).
+          5. Якщо один із сервісів недоступний, використовується інший, або резервний alerts.in.ua.
         """
         if regions is None:
             regions = MONITORED_REGIONS
 
-        results = {r_id: False for r_id in regions}
-        alerts_md_text = None
+        results = {}
+        alerts_md_cached = None
 
-        # 1. Запит до alerts.in.ua
-        try:
-            r = self.session.get("https://api.alerts.in.ua/v3/alerts/active.md", impersonate="chrome124", timeout=10)
-            if r.status_code == 200:
-                alerts_md_text = r.text
-        except Exception as e:
-            logger.error(f"Помилка отримання районного статусу з alerts.in.ua: {e}")
-
-        # Обробка кожного регіону
         for r_id, r_cfg in regions.items():
-            found_status = None
+            r_name = r_cfg.get("short_name", r_id)
+            eradar_status = None
+            kupol_status = None
 
-            if alerts_md_text:
-                sec3_idx = alerts_md_text.find("## 3. CURRENT WARNING STATUS")
-                sec4_idx = alerts_md_text.find("## 4.", sec3_idx) if sec3_idx != -1 else -1
-                sec3 = alerts_md_text[sec3_idx:sec4_idx] if sec3_idx != -1 and sec4_idx != -1 else alerts_md_text[sec3_idx:]
+            # 1. Пряма перевірка eRadar
+            if self.eradar_client:
+                eradar_status = self.eradar_client.check_alarm_for_region(r_cfg)
 
-                oblast_keys = r_cfg.get("oblast_keywords", [])
-                raion_keys = r_cfg.get("raion_keywords", [])
+            # 2. Пряма перевірка КУПОЛ
+            if self.kupol_client:
+                kupol_status = self.kupol_client.check_alarm_for_region(r_cfg)
 
-                in_oblast = False
-                in_raion = False
+            # 3. Визначення фінального статусу
+            final_status = None
 
-                for para in sec3.split("\n\n"):
-                    para_s = para.strip().lower()
-                    if any(k in para_s for k in oblast_keys):
-                        in_oblast = True
-                        if any(rk in para_s for rk in raion_keys) or "all areas" in para_s or "всі райони" in para_s:
-                            in_raion = True
-                            break
+            # Якщо хоча б одне джерело повідомляє про тривогу
+            if eradar_status is True or kupol_status is True:
+                final_status = True
+            # Якщо обидва сервіси активні і повідомляють про відбій
+            elif eradar_status is False and kupol_status is False:
+                final_status = False
+            # Якщо доступний лише eRadar
+            elif eradar_status is not None and kupol_status is None:
+                final_status = eradar_status
+            # Якщо доступний лише КУПОЛ
+            elif kupol_status is not None and eradar_status is None:
+                final_status = kupol_status
+            else:
+                # Обидва сервіси повернули помилку (None) -> використовуємо резервний alerts.in.ua
+                res_backup = self._check_alerts_in_ua_for_region(r_cfg, cached_md=alerts_md_cached)
+                final_status = res_backup if res_backup is not None else False
 
-                if in_oblast:
-                    found_status = in_raion
-                else:
-                    found_status = False
-
-            # Якщо alerts.in.ua не визначив або сталася помилка — перевіряємо запасні джерела
-            if found_status is None:
-                if self.eradar_client:
-                    res_eradar = self.eradar_client.check_alarm_signal_for_region(r_cfg)
-                    if res_eradar is not None:
-                        found_status = res_eradar
-
-            if found_status is None:
-                if self.kupol_client:
-                    res_kupol = self.kupol_client.check_alarm_for_region(r_cfg)
-                    if res_kupol is not None:
-                        found_status = res_kupol
-
-            results[r_id] = bool(found_status)
+            results[r_id] = bool(final_status)
+            logger.debug(
+                f"[{r_name}] Статус тривоги: {results[r_id]} "
+                f"(eRadar: {eradar_status}, КУПОЛ: {kupol_status})"
+            )
 
         return results
 

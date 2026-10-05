@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import time
 import logging
 from datetime import datetime, timezone
@@ -7,6 +8,8 @@ from config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     THREAD_ID_ALERTS,
+    KUPOL_MODE,
+    ERADAR_MODE,
 )
 from telegram_sender import TelegramSender
 from radar.utils import (
@@ -24,10 +27,10 @@ logger = logging.getLogger("RadarMonitor")
 
 class SarnyRadarMonitor:
     """
-    Монітор повітряних загроз для Сарненського району:
-    - Отримує дані від eRadar (eradar.app) та КУПОЛ (kupol.in.ua / NEPTUN).
-    - Перевіряє статус тривоги (alerts.in.ua + бекапи) для Сарненського району.
-    - Відправляє повідомлення у Telegram із чітким маркуванням сервісу.
+    Монітор повітряних загроз та тривог:
+    - eRadar (eradar.app): активні загрози, моніторинговий фід, офіційний статус тривоги.
+    - КУПОЛ (kupol.in.ua / NEPTUN): відстеження активних цілей (БпЛА, ракети, КАБ, FPV) по всій Україні або в районі Сарн.
+    - Надійна перевірка тривоги та відбою з гарантованим сповіщенням.
     """
 
     def __init__(self, send_to_telegram: bool = True):
@@ -38,6 +41,10 @@ class SarnyRadarMonitor:
         })
         self.send_to_telegram = send_to_telegram
         self.sender = TelegramSender(token=TELEGRAM_BOT_TOKEN, channel=TELEGRAM_CHAT_ID)
+
+        # Режим роботи КУПОЛ: 'all_ukraine' (вся Україна) або 'sarny' (тільки Сарни)
+        self.kupol_mode = KUPOL_MODE
+        self.eradar_mode = ERADAR_MODE
 
         # Конфігурація регіонів
         self.regions = MONITORED_REGIONS
@@ -55,7 +62,7 @@ class SarnyRadarMonitor:
         self.kupol = KupolClient(self.session)
         self.alerts = AlertsClient(self.session, eradar_client=self.eradar, kupol_client=self.kupol)
 
-        # Статуси тривог по регіонах: { 'sarny': {'is_alarm': False, 'start_time': None}, ... }
+        # Статуси тривог по регіонах
         self.alarm_states = {
             r_id: {"is_alarm": False, "start_time": None}
             for r_id in self.regions
@@ -77,16 +84,19 @@ class SarnyRadarMonitor:
 
     def get_status(self) -> dict:
         """
-        Отримує повну актуальну інформацію з eRadar та КУПОЛ для всіх регіонів (Сарни + Одеса):
-        1. Статуси тривог по регіонах
+        Отримує повну актуальну інформацію з eRadar та КУПОЛ:
+        1. Статуси тривог по регіонах (консенсус eRadar + КУПОЛ + alerts.in.ua)
         2. Активні цілі eRadar (Dangers)
         3. Повідомлення моніторингу eRadar (Feed)
-        4. Активні цілі КУПОЛ (NEPTUN) з курсом та координатами
+        4. Активні цілі КУПОЛ (NEPTUN) згідно з KUPOL_MODE (вся Україна або Сарни)
         """
         alarms_by_region = self.alerts.check_alarms_for_regions(self.regions)
         dangers_by_region, danger_feed_ids, danger_message_keys = self.eradar.get_dangers_for_regions(self.regions)
         feed_by_region = self.eradar.get_feed_for_regions(danger_feed_ids, danger_message_keys, self.regions)
-        kupol_by_region = self.kupol.get_threats_for_regions(self.regions)
+
+        # Отримуємо цілі КУПОЛ згідно з активним режимом
+        kupol_threats = self.kupol.get_threats(mode=self.kupol_mode, regions=self.regions)
+        kupol_by_region = self.kupol.get_threats_for_regions(self.regions, mode=self.kupol_mode)
 
         all_dangers = []
         for d_list in dangers_by_region.values():
@@ -96,11 +106,6 @@ class SarnyRadarMonitor:
         for f_list in feed_by_region.values():
             all_feed.extend(f_list)
 
-        all_kupol = []
-        for k_list in kupol_by_region.values():
-            all_kupol.extend(k_list)
-
-        # Статус для Сарн (зворотна сумісність)
         sarny_alarm = alarms_by_region.get("sarny", False)
 
         return {
@@ -110,14 +115,14 @@ class SarnyRadarMonitor:
             "dangers_by_region": dangers_by_region,
             "feed_by_region": feed_by_region,
             "kupol_by_region": kupol_by_region,
+            "kupol_threats": kupol_threats,
             "dangers": all_dangers,
             "feed_events": all_feed,
-            "kupol_threats": all_kupol,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     def check_and_notify(self):
-        """Перевіряє зміни по всіх регіонах та надсилає сповіщення у відповідні гілки."""
+        """Перевіряє зміни по всіх джерелах та надсилає сповіщення у відповідні гілки."""
         data = self.get_status()
         now_str = datetime.now().strftime("%H:%M:%S")
 
@@ -136,10 +141,10 @@ class SarnyRadarMonitor:
                         f"⏰ <b>Час початку:</b> {now_str}\n\n"
                         f"⚠️ Перейдіть в укриття!"
                     )
-                    logger.warning(f"Оголошено тривогу: {r_cfg['name']}!")
+                    logger.warning(f"🔴 Оголошено тривогу: {r_cfg['name']}!")
                 else:
                     duration_str = ""
-                    if state["start_time"]:
+                    if state.get("start_time"):
                         dur_sec = (datetime.now() - state["start_time"]).total_seconds()
                         duration_str = f"\n⏱ <b>Тривалість:</b> {format_duration(dur_sec)}"
                     msg = (
@@ -149,14 +154,19 @@ class SarnyRadarMonitor:
                         f"{duration_str}\n\n"
                         f"✅ Небезпека минула."
                     )
-                    logger.info(f"Відбій тривоги: {r_cfg['name']}!")
+                    logger.info(f"🟢 Відбій тривоги: {r_cfg['name']}!")
 
-                state["is_alarm"] = current_alarm
-                if r_id == "sarny":
-                    self.is_alarm_active = current_alarm
-
+                sent_ok = True
                 if self.send_to_telegram:
-                    self.sender._send_text_message(msg, thread_id=target_thread)
+                    sent_ok = self.sender._send_text_message(msg, thread_id=target_thread)
+
+                # Оновлюємо стан тільки якщо повідомлення було успішно надіслано
+                if sent_ok or not self.send_to_telegram:
+                    state["is_alarm"] = current_alarm
+                    if r_id == "sarny":
+                        self.is_alarm_active = current_alarm
+                else:
+                    logger.error(f"❌ Не вдалося надіслати повідомлення про {'тривогу' if current_alarm else 'відбій'}! Стан залишено для повтору.")
 
         # 2. Нові цілі від основного сервісу eRadar (Dangers)
         for r_id, d_list in data["dangers_by_region"].items():
@@ -232,62 +242,76 @@ class SarnyRadarMonitor:
                 if self.send_to_telegram:
                     self.sender._send_text_message(msg, thread_id=target_thread)
 
-        # 4. Нові цілі від додаткового сервісу КУПОЛ (kupol.in.ua / NEPTUN)
-        for r_id, k_list in data["kupol_by_region"].items():
-            r_cfg = self.regions[r_id]
-            target_thread = self.get_thread_for_region(r_id)
+        # 4. Нові цілі від сервісу КУПОЛ (kupol.in.ua / NEPTUN)
+        kupol_threats = data.get("kupol_threats", [])
+        kupol_thread = self.get_thread_for_region("sarny")
 
-            for th in k_list:
-                kid = str(th["id"])
-                if kid not in self.seen_kupol_ids:
-                    self.seen_kupol_ids.add(kid)
+        for th in kupol_threats:
+            kid = str(th["id"])
+            raw_id = str(th.get("raw_id", kid))
 
-                    dist_str = f" (~{th['distance_km']} км від {r_cfg['short_name']})" if th.get("distance_km") else ""
-                    region_str = f"{th['region']}" if th.get("region") else r_cfg["name"]
-                    loc_info = f"{region_str}{dist_str}"
+            if kid in self.seen_kupol_ids or raw_id in self.seen_kupol_ids:
+                continue
 
-                    course_block = ""
-                    if th.get("course_desc"):
-                        course_block = f"\n🧭 <b>Курс:</b> {th['course_desc']}"
+            self.seen_kupol_ids.add(kid)
+            self.seen_kupol_ids.add(raw_id)
 
-                    note_block = ""
-                    if th.get("note"):
-                        clean_note = clean_text_line(th["note"])
-                        note_html = format_telegram_html(clean_note)
-                        note_block = f"\n💬 <b>Інформація:</b> {note_html}"
+            dist_str = f" (~{th['distance_km']} км від Сарн)" if th.get("distance_km") else ""
+            location_str = th.get("location") or th.get("region") or "Україна"
 
-                    msg = (
-                        f"🛡 <b>[КУПОЛ / NEPTUN] ЗАГРОЗА ДЛЯ РАЙОНУ!</b>\n\n"
-                        f"📍 <b>Регіон:</b> {r_cfg['name']}\n"
-                        f"🎯 <b>Загроза:</b> {th['threat_type']}\n"
-                        f"📍 <b>Локація:</b> {loc_info}"
-                        f"{course_block}"
-                        f"{note_block}\n"
-                        f"⏰ <b>Час:</b> {now_str}\n\n"
-                        f"📡 <i>Джерело: КУПОЛ (kupol.in.ua)</i>"
-                    )
-                    logger.warning(f"[КУПОЛ] Нова ціль для {r_cfg['short_name']}: {th['threat_type']} -> {th.get('note')}")
-                    if self.send_to_telegram:
-                        self.sender._send_text_message(msg, thread_id=target_thread)
+            course_block = f"\n🧭 <b>Курс:</b> {th['course_desc']}" if th.get("course_desc") else ""
+            speed_block = f"\n💨 <b>Швидкість:</b> ~{round(th['speed_kmh'])} км/год" if th.get("speed_kmh") else ""
+
+            note_block = ""
+            if th.get("note"):
+                clean_note = clean_text_line(th["note"])
+                note_html = format_telegram_html(clean_note)
+                note_block = f"\n💬 <b>Інформація:</b> {note_html}"
+
+            # Заголовок: якщо близько до Сарн — небезпека для району, якщо по Україні — моніторинг цілі
+            if th.get("is_near_sarny"):
+                header = "🚨 <b>[КУПОЛ / NEPTUN] УВАГА! ЦІЛЬ БІЛЯ САРНЕНСЬКОГО РАЙОНУ!</b>"
+            elif self.kupol_mode == "all_ukraine":
+                header = "🛡 <b>[КУПОЛ / NEPTUN] АКТИВНА ЦІЛЬ В УКРАЇНІ</b>"
+            else:
+                header = "🛡 <b>[КУПОЛ / NEPTUN] ЗАГРОЗА ДЛЯ РАЙОНУ!</b>"
+
+            msg = (
+                f"{header}\n\n"
+                f"📍 <b>Локація:</b> {location_str}{dist_str}\n"
+                f"🎯 <b>Загроза:</b> {th['threat_type']}"
+                f"{course_block}"
+                f"{speed_block}"
+                f"{note_block}\n"
+                f"⏰ <b>Час:</b> {now_str}\n\n"
+                f"📡 <i>Джерело: КУПОЛ (kupol.in.ua)</i>"
+            )
+            logger.warning(f"[КУПОЛ] Нова ціль ({th['threat_type']}): {location_str}{dist_str}")
+            if self.send_to_telegram:
+                self.sender._send_text_message(msg, thread_id=kupol_thread)
 
     def run_live(self, poll_interval: int = 15):
         """Запускає постійний моніторинг у реальному часі."""
-        logger.info("🛰 Запуск живого моніторингу eRadar + КУПОЛ для регіонів: Сарни, Одеса...")
+        mode_str = "ВСЯ УКРАЇНА" if self.kupol_mode == "all_ukraine" else "ТІЛЬКИ САРНИ"
+        logger.info(f"🛰 Запуск живого моніторингу eRadar + КУПОЛ...")
+        logger.info(f"   ⚙️ Режим КУПОЛ: [{mode_str}] (KUPOL_MODE={self.kupol_mode})")
         for r_id, r_cfg in self.regions.items():
             th_id = self.get_thread_for_region(r_id)
-            logger.info(f"   📍 {r_cfg['name']} -> Thread ID: {th_id}")
+            logger.info(f"   📍 Регіон тривог: {r_cfg['name']} -> Telegram Thread ID: {th_id}")
         logger.info(f"⏱ Інтервал перевірки: кожні {poll_interval} сек.")
 
         init_data = self.get_status()
         for r_id, r_cfg in self.regions.items():
             alarm_on = init_data["alarms_by_region"].get(r_id, False)
             self.alarm_states[r_id]["is_alarm"] = alarm_on
+            if alarm_on:
+                self.alarm_states[r_id]["start_time"] = datetime.now()
             alarm_text = "🔴 ПОВІТРЯНА ТРИВОГА" if alarm_on else "🟢 ВІДБІЙ"
             e_count = len(init_data["dangers_by_region"].get(r_id, []))
-            k_count = len(init_data["kupol_by_region"].get(r_id, []))
+            k_count = len(init_data.get("kupol_threats", []))
             logger.info(f"   [{r_cfg['short_name']}] Тривога: {alarm_text} | Цілей eRadar: {e_count}, КУПОЛ: {k_count}")
 
-        # Прогрів (пре-сідінг): запам'ятовуємо всю наявну історію, щоб не спамити старими постами при старті
+        # Прогрів (пре-сідінг): запам'ятовуємо вже наявні цілі при старті, щоб не спамити старими подіями
         for d in init_data["dangers"]:
             self.seen_danger_ids.add(str(d["id"]))
             if d.get("last_message_id"):
@@ -304,16 +328,19 @@ class SarnyRadarMonitor:
                 self.seen_message_keys.add(f"{f['channel']}_{f['tg_message_id']}")
                 self.seen_message_keys.add(f"{f['channel']}_{f['tg_message_id']}_{r_id}")
 
-        for th in init_data["kupol_threats"]:
+        for th in init_data.get("kupol_threats", []):
             self.seen_kupol_ids.add(str(th["id"]))
             if th.get("raw_id"):
                 self.seen_kupol_ids.add(str(th["raw_id"]))
 
-        logger.info(f"🛡 Пре-сідінг завершено: збережено {len(self.seen_feed_ids)} постів та {len(self.seen_kupol_ids)} цілей. Спаму не буде!")
+        logger.info(
+            f"🛡 Пре-сідінг завершено: збережено {len(self.seen_feed_ids)} постів eRadar "
+            f"та {len(self.seen_kupol_ids)} цілей КУПОЛ. Спаму при старті не буде!"
+        )
 
         while True:
             try:
                 self.check_and_notify()
             except Exception as e:
-                logger.error(f"Помилка циклу моніторингу: {e}")
+                logger.error(f"Помилка циклу моніторингу: {e}", exc_info=True)
             time.sleep(poll_interval)
