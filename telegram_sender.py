@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import re
 import html
 import json
@@ -30,25 +30,22 @@ class TelegramSender:
             return False
 
         text = post.get("text", "").strip()
-        permalink = post.get("permalink", "")
         images = post.get("images", [])
-
-        link_html = f'\n\n🔗 <a href="{permalink}">Читати повністю у Facebook</a>' if permalink else ""
 
         try:
             if images:
-                max_text_len = 1024 - len(link_html) - 10
+                max_text_len = 1024
                 if len(text) > max_text_len:
-                    caption = escape_html(text[:max_text_len].rsplit(" ", 1)[0]) + "..." + link_html
+                    caption = escape_html(text[:1020].rsplit(" ", 1)[0]) + "..."
                 else:
-                    caption = escape_html(text) + link_html
+                    caption = escape_html(text)
 
                 if len(images) == 1:
                     return self._send_single_photo(images[0], caption, thread_id=thread_id)
                 else:
                     return self._send_album(images, caption, thread_id=thread_id)
             else:
-                full_text = escape_html(text) + link_html
+                full_text = escape_html(text)
                 return self._send_text_message(full_text, thread_id=thread_id)
         except Exception as e:
             logger.error(f"Помилка при відправці посту в Telegram: {e}", exc_info=True)
