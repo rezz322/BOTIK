@@ -100,14 +100,8 @@ class SarnyRadarMonitor:
                 self.is_oblast_alarm_active = is_oblast
                 self.is_district_alarm_active = is_district
 
-                # Формуємо точну локацію оголошення (без дублювання району)
-                if is_oblast:
-                    loc_title = "Рівненська область"
-                elif is_district:
-                    loc_title = "Сарненський район"
-                else:
-                    comm_names = [c["name"] for c in active_comms.values()]
-                    loc_title = ", ".join(comm_names)
+                # Формуємо точну локацію оголошення: виключно Сарненський район
+                loc_title = "Сарненський район"
 
                 header = f"{circle_emoji} <b>ПОВІТРЯНА ТРИВОГА!</b>"
 

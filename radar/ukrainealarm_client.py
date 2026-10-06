@@ -153,15 +153,8 @@ class UkraineAlarmClient:
                     if lvl_name:
                         levels_for_item.append(lvl_name)
 
-            # 1. Перевірка на рівні області
-            if rid == RIVNE_STATE_ID or (rtype == "State" and ("рівненськ" in rname or "rivne" in reng)):
-                is_rivne_oblast_alarm = True
-                if reasons_for_item:
-                    all_reasons.extend(reasons_for_item)
-                if levels_for_item:
-                    all_levels.extend(levels_for_item)
-
-            # 2. Перевірка на рівні Сарненського району
+            # Перевірка виключно на рівні Сарненського району (Сарненський район, ID 113)
+            # Рівненську область (ID 5) та м. Рівне повністю ігноруємо
             if rid == SARNY_DISTRICT_ID or (rtype == "District" and ("сарненськ" in rname or "sarn" in reng)):
                 is_sarny_raion_alarm = True
                 if reasons_for_item:
@@ -169,23 +162,8 @@ class UkraineAlarmClient:
                 if levels_for_item:
                     all_levels.extend(levels_for_item)
 
-            # 3. Перевірка на рівні громад / підрайонів
-            for comm_id, comm_cfg in SARNY_COMMUNITIES.items():
-                if any(kw in rname or kw in reng for kw in comm_cfg["keywords"]):
-                    active_communities[comm_id] = {
-                        "name": comm_cfg["name"],
-                        "short_name": comm_cfg["short_name"],
-                        "reasons": reasons_for_item,
-                        "alert_levels": levels_for_item,
-                        "last_update": al.get("lastUpdate"),
-                    }
-                    if reasons_for_item:
-                        all_reasons.extend(reasons_for_item)
-                    if levels_for_item:
-                        all_levels.extend(levels_for_item)
-
-        # Загальний статус тривоги Сарн
-        overall_alarm = is_rivne_oblast_alarm or is_sarny_raion_alarm or bool(active_communities)
+        # Загальний статус тривоги: виключно Сарненський район
+        overall_alarm = is_sarny_raion_alarm
 
         unique_reasons = list(dict.fromkeys(all_reasons))
         unique_levels = list(dict.fromkeys(all_levels))
