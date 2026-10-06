@@ -134,6 +134,7 @@ class UkraineAlarmClient:
         is_sarny_raion_alarm = False
         active_communities = {}
         all_reasons = []
+        all_levels = []
 
         for al in alerts:
             rid = str(al.get("regionId", ""))
@@ -142,23 +143,31 @@ class UkraineAlarmClient:
             reng = str(al.get("regionEngName", "")).lower()
 
             reasons_for_item = []
+            levels_for_item = []
             for act in al.get("activeAlerts", []):
                 for lvl in act.get("activeAlertLevels", []):
                     reason_txt = lvl.get("reason", "").strip()
+                    lvl_name = lvl.get("alertLevel", "").strip()
                     if reason_txt:
                         reasons_for_item.append(reason_txt)
+                    if lvl_name:
+                        levels_for_item.append(lvl_name)
 
             # 1. Перевірка на рівні області
             if rid == RIVNE_STATE_ID or (rtype == "State" and ("рівненськ" in rname or "rivne" in reng)):
                 is_rivne_oblast_alarm = True
                 if reasons_for_item:
                     all_reasons.extend(reasons_for_item)
+                if levels_for_item:
+                    all_levels.extend(levels_for_item)
 
             # 2. Перевірка на рівні Сарненського району
             if rid == SARNY_DISTRICT_ID or (rtype == "District" and ("сарненськ" in rname or "sarn" in reng)):
                 is_sarny_raion_alarm = True
                 if reasons_for_item:
                     all_reasons.extend(reasons_for_item)
+                if levels_for_item:
+                    all_levels.extend(levels_for_item)
 
             # 3. Перевірка на рівні громад / підрайонів
             for comm_id, comm_cfg in SARNY_COMMUNITIES.items():
@@ -167,15 +176,19 @@ class UkraineAlarmClient:
                         "name": comm_cfg["name"],
                         "short_name": comm_cfg["short_name"],
                         "reasons": reasons_for_item,
+                        "alert_levels": levels_for_item,
                         "last_update": al.get("lastUpdate"),
                     }
                     if reasons_for_item:
                         all_reasons.extend(reasons_for_item)
+                    if levels_for_item:
+                        all_levels.extend(levels_for_item)
 
         # Загальний статус тривоги Сарн
         overall_alarm = is_rivne_oblast_alarm or is_sarny_raion_alarm or bool(active_communities)
 
         unique_reasons = list(dict.fromkeys(all_reasons))
+        unique_levels = list(dict.fromkeys(all_levels))
 
         # Обробка радарних цілей поблизу Сарн та громад
         sarny_targets = []
@@ -237,6 +250,7 @@ class UkraineAlarmClient:
             "is_district_alarm": is_sarny_raion_alarm,
             "active_communities": active_communities,
             "reasons": unique_reasons,
+            "alert_levels": unique_levels,
             "mig_alerts": mig_alerts,
             "artillery": artillery,
             "targets": sarny_targets,

@@ -196,3 +196,50 @@ def format_duration(total_seconds: float) -> str:
     if hours > 0:
         return f"{hours} год. {mins} хв."
     return f"{mins} хв."
+
+
+def clean_threat_reason(text: str) -> str:
+    """Видаляє рівень загрози у дужках (наприклад '(жовтий рівень)', '(червоний рівень)')."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s*\((?:жовтий|червоний|помаранчевий)\s+рівень\)", "", text, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def get_alert_circle_emoji(alert_levels: list = None, reasons: list = None) -> str:
+    """
+    Повертає емодзі кружка відповідно до рівня загрози:
+    - Жовтий рівень (дрони / жовтий рівень) -> 🟡
+    - Помаранчевий рівень -> 🟠
+    - Червоний рівень (ракети / червоний рівень) -> 🔴
+    За замовчуванням: 🔴
+    """
+    levels_str = " ".join(alert_levels or []).lower()
+    reasons_str = " ".join(reasons or []).lower()
+
+    # Червоний рівень (найвищий пріоритет)
+    if (
+        "red" in levels_str
+        or "червон" in reasons_str
+        or "ракет" in reasons_str
+        or "баліст" in reasons_str
+        or "крилат" in reasons_str
+    ):
+        return "🔴"
+
+    # Помаранчевий рівень
+    if "orange" in levels_str or "помаранч" in reasons_str:
+        return "🟠"
+
+    # Жовтий рівень
+    if (
+        "yellow" in levels_str
+        or "жовт" in reasons_str
+        or "дрон" in reasons_str
+        or "шахед" in reasons_str
+        or "бпла" in reasons_str
+    ):
+        return "🟡"
+
+    return "🔴"
+

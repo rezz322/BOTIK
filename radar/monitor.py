@@ -17,6 +17,8 @@ from radar.utils import (
     SARNY_RADIUS_KM,
     format_telegram_html,
     format_duration,
+    clean_threat_reason,
+    get_alert_circle_emoji,
 )
 from radar.ukrainealarm_client import UkraineAlarmClient
 
@@ -70,16 +72,23 @@ class SarnyRadarMonitor:
         """Опитує API та надсилає сповіщення у разі змін."""
         status = self.get_status()
         now_dt = datetime.now()
-        now_str = now_dt.strftime("%H:%M:%S")
+        now_str = now_dt.strftime("%H.%M")
 
         overall_alarm = status["overall_alarm"]
         is_oblast = status["is_oblast_alarm"]
         is_district = status["is_district_alarm"]
         active_comms = status["active_communities"]
         reasons_list = status["reasons"]
+        alert_levels = status.get("alert_levels", [])
 
-        reasons_text = ", ".join(reasons_list) if reasons_list else "Повітряна загроза"
-        reasons_block = f"\n🎯 <b>Загроза:</b> {format_telegram_html(reasons_text)}" if reasons_list else ""
+        # Очищуємо текст загрози від суфіксу рівня '(жовтий рівень)' тощо
+        cleaned_reasons = [clean_threat_reason(r) for r in reasons_list if r]
+        cleaned_reasons = [r for r in cleaned_reasons if r]
+        reasons_text = ", ".join(dict.fromkeys(cleaned_reasons)) if cleaned_reasons else "Повітряна загроза"
+        reasons_block = f"\n🎯 <b>Загроза:</b> {format_telegram_html(reasons_text)}" if cleaned_reasons else ""
+
+        # Визначаємо кружок тривоги (🟡 для жовтого рівня, 🔴 для червоного)
+        circle_emoji = get_alert_circle_emoji(alert_levels=alert_levels, reasons=reasons_list)
 
         # -------------------------------------------------------------
         # 1. ОБРОБКА ПОВІТРЯНОЇ ТРИВОГИ ТА ВІДБОЮ ДЛЯ САРНЕНСЬКОГО РАЙОНУ
@@ -91,25 +100,22 @@ class SarnyRadarMonitor:
                 self.is_oblast_alarm_active = is_oblast
                 self.is_district_alarm_active = is_district
 
-                # Формуємо точну локацію оголошення
+                # Формуємо точну локацію оголошення (без дублювання району)
                 if is_oblast:
-                    loc_title = "Рівненська область (включаючи Сарненський район та всі громади)"
-                    header = "🔴 <b>УВАГА! ПОВІТРЯНА ТРИВОГА ПО ВСІЙ ОБЛАСТІ!</b>"
+                    loc_title = "Рівненська область"
                 elif is_district:
-                    loc_title = "Сарненський район (всі підрайони та громади)"
-                    header = "🔴 <b>УВАГА! ПОВІТРЯНА ТРИВОГА У САРНЕНСЬКОМУ РАЙОНІ!</b>"
+                    loc_title = "Сарненський район"
                 else:
                     comm_names = [c["name"] for c in active_comms.values()]
-                    loc_title = ", ".join(comm_names) + " (Сарненський район)"
-                    header = "🔴 <b>УВАГА! ПОВІТРЯНА ТРИВОГА!</b>"
+                    loc_title = ", ".join(comm_names)
+
+                header = f"{circle_emoji} <b>ПОВІТРЯНА ТРИВОГА!</b>"
 
                 msg = (
                     f"{header}\n\n"
                     f"📍 <b>Локація:</b> {loc_title}"
                     f"{reasons_block}\n"
-                    f"⏰ <b>Час початку:</b> {now_str}\n\n"
-                    f"⚠️ Негайно прямуйте в укриття!\n\n"
-                    f"📡 <i>Джерело: Мапа тривог України (map.ukrainealarm.com)</i>"
+                    f"⏰ <b>Час:</b> {now_str}"
                 )
                 logger.warning(f"🔴 Оголошено тривогу: {loc_title} ({reasons_text})")
 
@@ -119,6 +125,11 @@ class SarnyRadarMonitor:
 
                 if sent_ok or not self.send_to_telegram:
                     self.is_alarm_active = True
+                    # Позначаємо всі активні громади, щоб уникнути дублювання у секції 2
+                    for comm_id in active_comms.keys():
+                        if comm_id in self.community_states:
+                            self.community_states[comm_id]["is_alarm"] = True
+                            self.community_states[comm_id]["start_time"] = now_dt
                 else:
                     logger.error("❌ Не вдалося надіслати сповіщення про тривогу в Telegram!")
 
@@ -129,14 +140,13 @@ class SarnyRadarMonitor:
                     dur_sec = (now_dt - self.alarm_start_time).total_seconds()
                     duration_str = f"\n⏱ <b>Тривалість:</b> {format_duration(dur_sec)}"
 
-                loc_title = "Сарненський район та громади"
+                loc_title = "Сарненський район"
                 msg = (
                     f"🟢 <b>ВІДБІЙ ПОВІТРЯНОЇ ТРИВОГИ!</b>\n\n"
                     f"📍 <b>Локація:</b> {loc_title}\n"
                     f"⏰ <b>Час відбою:</b> {now_str}"
                     f"{duration_str}\n\n"
-                    f"✅ Небезпека минула. Слідкуйте за подальшими повідомленнями.\n\n"
-                    f"📡 <i>Джерело: Мапа тривог України (map.ukrainealarm.com)</i>"
+                    f"✅ Небезпека минула. Слідкуйте за подальшими повідомленнями."
                 )
                 logger.info(f"🟢 Відбій тривоги для Сарненського району ({duration_str})")
 
@@ -156,7 +166,7 @@ class SarnyRadarMonitor:
                     logger.error("❌ Не вдалося надіслати повідомлення про відбій!")
 
         # -------------------------------------------------------------
-        # 2. ДЕТАЛЬНИЙ МОНІТОРИНГ ОКРЕМИХ ГРОМАД (якщо тривога точкова)
+        # 2. ДЕТАЛЬНИЙ МОНІТОРИНГ ОКРЕМИХ ГРОМАД (якщо додалася нова громада під час тривоги)
         # -------------------------------------------------------------
         if not is_oblast and not is_district and overall_alarm:
             for comm_id, comm_data in active_comms.items():
@@ -164,19 +174,31 @@ class SarnyRadarMonitor:
                 if not c_state["is_alarm"]:
                     c_state["is_alarm"] = True
                     c_state["start_time"] = now_dt
-                    c_reasons = ", ".join(comm_data["reasons"]) if comm_data.get("reasons") else ""
+
+                    c_raw_reasons = comm_data.get("reasons", [])
+                    c_levels = comm_data.get("alert_levels", [])
+                    c_cleaned_reasons = [clean_threat_reason(r) for r in c_raw_reasons if r]
+                    c_cleaned_reasons = [r for r in c_cleaned_reasons if r]
+                    c_reasons = ", ".join(dict.fromkeys(c_cleaned_reasons)) if c_cleaned_reasons else ""
                     c_reasons_block = f"\n🎯 <b>Загроза:</b> {format_telegram_html(c_reasons)}" if c_reasons else ""
+
+                    c_circle = get_alert_circle_emoji(alert_levels=c_levels, reasons=c_raw_reasons)
+                    header = f"{c_circle} <b>ПОВІТРЯНА ТРИВОГА!</b>"
                     msg = (
-                        f"🔴 <b>УВАГА! ПОВІТРЯНА ТРИВОГА У ГРОМАДІ!</b>\n\n"
-                        f"📍 <b>{comm_data['name']}</b> (Сарненський район)"
+                        f"{header}\n\n"
+                        f"📍 <b>Локація:</b> {comm_data['name']}"
                         f"{c_reasons_block}\n"
-                        f"⏰ <b>Час:</b> {now_str}\n\n"
-                        f"⚠️ Перейдіть в укриття!\n"
-                        f"📡 <i>Джерело: map.ukrainealarm.com</i>"
+                        f"⏰ <b>Час:</b> {now_str}"
                     )
                     logger.warning(f"🔴 Тривога у громаді: {comm_data['name']}")
                     if self.send_to_telegram:
                         self.sender._send_text_message(msg, thread_id=self.thread_id)
+
+            # Синхронізація громад, якщо тривога в якійсь завершилась, доки в іншій активна
+            for comm_id, c_state in self.community_states.items():
+                if c_state["is_alarm"] and comm_id not in active_comms:
+                    c_state["is_alarm"] = False
+                    c_state["start_time"] = None
 
         # -------------------------------------------------------------
         # 3. РАДАРНІ ЦІЛІ БІЛЯ САРНЕНСЬКОГО РАЙОНУ (БпЛА / РАКЕТИ)
@@ -195,9 +217,7 @@ class SarnyRadarMonitor:
                 f"🎯 <b>Загроза:</b> {t['type']}\n"
                 f"📍 <b>Найближча громада:</b> {t['closest_community_name']} (~{t['dist_to_closest_comm_km']} км)\n"
                 f"🧭 <b>До м. Сарни:</b> ~{t['dist_to_sarny_km']} км {compass_str}\n"
-                f"📡 <b>Джерело:</b> {format_telegram_html(t['sources_text'])}\n"
-                f"⏰ <b>Час:</b> {now_str}\n\n"
-                f"📡 <i>Джерело: Мапа тривог України (map.ukrainealarm.com)</i>"
+                f"⏰ <b>Час:</b> {now_str}"
             )
             logger.warning(f"🚨 Радар: ціль {t['type']} біля {t['closest_community_short']} (~{t['dist_to_closest_comm_km']} км)")
             if self.send_to_telegram:
@@ -215,8 +235,7 @@ class SarnyRadarMonitor:
                     f"⚠️ <b>[Мапа тривог] ЗЛІТ МіГ-31К!</b>\n\n"
                     f"🚀 Зафіксовано зліт надзвукового винищувача МіГ-31К!\n"
                     f"🔴 Ракетна небезпека по всій території України (загроза ракет Х-47М2 «Кинджал»)!\n"
-                    f"⏰ <b>Час:</b> {now_str}\n\n"
-                    f"📡 <i>Джерело: map.ukrainealarm.com</i>"
+                    f"⏰ <b>Час:</b> {now_str}"
                 )
                 logger.warning("⚠️ Зліт МіГ-31К!")
                 if self.send_to_telegram:
@@ -237,6 +256,10 @@ class SarnyRadarMonitor:
             self.alarm_start_time = datetime.now()
             self.is_oblast_alarm_active = init_data["is_oblast_alarm"]
             self.is_district_alarm_active = init_data["is_district_alarm"]
+            for comm_id in init_data["active_communities"].keys():
+                if comm_id in self.community_states:
+                    self.community_states[comm_id]["is_alarm"] = True
+                    self.community_states[comm_id]["start_time"] = self.alarm_start_time
 
         init_status_text = "🔴 ПОВІТРЯНА ТРИВОГА" if self.is_alarm_active else "🟢 ВІДБІЙ"
         logger.info(f"   Поточний статус Сарненського району: {init_status_text}")
