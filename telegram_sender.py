@@ -173,14 +173,18 @@ class TelegramSender:
             return False
 
     def _handle_telegram_response(self, res: requests.Response, action_name: str) -> bool:
+        import sys
         try:
             data = res.json()
             if data.get("ok"):
                 logger.info(f"🚀 Успішно надіслано в Telegram [{action_name}] -> {self.channel}")
+                sys.stdout.flush()
                 return True
             else:
                 logger.error(f"Помилка Telegram API [{action_name}] ({res.status_code}): {data.get('description')}")
+                sys.stdout.flush()
                 return False
         except Exception as e:
             logger.error(f"Некоректна відповідь Telegram [{action_name}]: {res.text} ({e})")
+            sys.stdout.flush()
             return False

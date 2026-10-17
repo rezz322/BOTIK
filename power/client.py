@@ -31,11 +31,15 @@ class RivneoblenergoClient:
     та Сарненського району — ПрАТ «Рівнеобленерго» (roe.vsei.ua).
     """
 
-    def __init__(self, timeout: int = 25):
+    def __init__(self, timeout: int = 12):
         self.timeout = timeout
 
     def fetch_page_html(self) -> str:
         """Отримує HTML сторінки відключень з підтримкою fallback методів."""
+        import sys
+        logger.info(f"   🌐 Завантаження сторінки {ROE_DISCONNECTIONS_URL}...")
+        sys.stdout.flush()
+
         # 1. Спроба через curl_cffi (реальний браузерний відбиток TLS, обхід WAF)
         try:
             from curl_cffi import requests as cffi_requests
@@ -44,22 +48,54 @@ class RivneoblenergoClient:
                 headers=DEFAULT_HEADERS,
                 impersonate="chrome124",
                 timeout=self.timeout,
+                verify=False,
             )
             if res.status_code == 200 and len(res.text) > 1000:
+                logger.info(f"   ✅ Отримано HTML через curl_cffi (розмір: {len(res.text)} байт)")
+                sys.stdout.flush()
                 return res.text
+            else:
+                logger.warning(f"   ⚠️ curl_cffi повернув код {res.status_code} (розмір {len(res.text)})")
         except Exception as e:
-            logger.debug(f"curl_cffi fetch failed: {e}")
+            logger.warning(f"   ⚠️ curl_cffi не відповів: {e}")
+        sys.stdout.flush()
 
-        # 2. Спроба через requests
+        # 2. Спроба через системну утиліту curl (нативно у Linux)
+        try:
+            import subprocess
+            cmd = [
+                "curl", "-s", "-L", "-k",
+                "-m", str(self.timeout),
+                "-A", DEFAULT_HEADERS["User-Agent"],
+                ROE_DISCONNECTIONS_URL
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout + 2)
+            if proc.returncode == 0 and len(proc.stdout) > 1000:
+                logger.info(f"   ✅ Отримано HTML через системний curl (розмір: {len(proc.stdout)} байт)")
+                sys.stdout.flush()
+                return proc.stdout
+        except Exception as e:
+            logger.warning(f"   ⚠️ системний curl не відповів: {e}")
+        sys.stdout.flush()
+
+        # 3. Спроба через стандартний requests
         try:
             import requests  # type: ignore
-            res = requests.get(ROE_DISCONNECTIONS_URL, headers=DEFAULT_HEADERS, timeout=self.timeout)
+            res = requests.get(
+                ROE_DISCONNECTIONS_URL,
+                headers=DEFAULT_HEADERS,
+                timeout=self.timeout,
+                verify=False,
+            )
             if res.status_code == 200 and len(res.text) > 1000:
+                logger.info(f"   ✅ Отримано HTML через requests (розмір: {len(res.text)} байт)")
+                sys.stdout.flush()
                 return res.text
         except Exception as e:
-            logger.debug(f"requests fetch failed: {e}")
+            logger.warning(f"   ⚠️ requests не відповів: {e}")
+        sys.stdout.flush()
 
-        # 3. Надійний fallback через urllib
+        # 4. Надійний fallback через urllib
         try:
             import urllib.request
             ctx = ssl.create_default_context()
@@ -68,10 +104,17 @@ class RivneoblenergoClient:
 
             req = urllib.request.Request(ROE_DISCONNECTIONS_URL, headers=DEFAULT_HEADERS)
             with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as response:
-                return response.read().decode("utf-8", errors="ignore")
+                body = response.read().decode("utf-8", errors="ignore")
+                if len(body) > 1000:
+                    logger.info(f"   ✅ Отримано HTML через urllib (розмір: {len(body)} байт)")
+                    sys.stdout.flush()
+                    return body
         except Exception as e:
-            logger.warning(f"urllib fetch failed: {e}")
+            logger.warning(f"   ⚠️ urllib не відповів: {e}")
+        sys.stdout.flush()
 
+        logger.error("❌ Всі методи підключення до roe.vsei.ua вичерпані!")
+        sys.stdout.flush()
         return ""
 
     def parse_schedule(self, html: Optional[str] = None) -> Dict[str, Any]:

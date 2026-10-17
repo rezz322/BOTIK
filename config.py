@@ -8,11 +8,15 @@ except ImportError:
     pass
 
 # Telegram налаштування
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@GG_WPasdfasdf")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip("'\"")
+TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@GG_WPasdfasdf").strip().strip("'\"")
 
 # ID чату або групи (для гілок форуму використовується ID групи обговорення)
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", TELEGRAM_CHANNEL)
+_raw_chat_id = os.getenv("TELEGRAM_CHAT_ID", TELEGRAM_CHANNEL).strip().strip("'\"")
+try:
+    TELEGRAM_CHAT_ID = int(_raw_chat_id)
+except ValueError:
+    TELEGRAM_CHAT_ID = _raw_chat_id
 
 # ID гілок (message_thread_id) для окремих тем
 def _parse_thread_id(val):
