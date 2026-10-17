@@ -249,9 +249,20 @@ class SarnyPowerMonitor:
 
         current_hash = schedule_info.get("hash")
         days = schedule_info.get("days", [])
+        self._last_days = days
         last_hash = self.state.get("last_hash")
         days_states = self.state.get("days_states", {})
         initial_sent = self.state.get("initial_sent", False)
+
+        days_summary = []
+        for d in days:
+            outage_cnt = sum(
+                1 for v in d.get("status_by_subqueue", {}).values()
+                if v not in ("Без обмежень", "", "Очікується", "-")
+            )
+            days_summary.append(f"{d['date']}: {outage_cnt} підчерг")
+        if days_summary:
+            logger.info(f"👉 Отримано днів у графіку: {len(days)} ({', '.join(days_summary)})")
 
         # -----------------------------------------------------------------
         # 0. ПЕРЕВІРКА ЕКСТРЕНИХ / АВАРІЙНИХ ВІДКЛЮЧЕНЬ
@@ -337,13 +348,28 @@ class SarnyPowerMonitor:
 
     def run_live(self, poll_interval: Optional[int] = None):
         """Запускає безперервний цикл моніторингу."""
-        interval = poll_interval or self.poll_interval
-        logger.info(f"🚀 Запуск моніторингу відключень Рівнеобленерго (Сарни) з інтервалом {interval} сек (попередження за {self.warn_minutes} хв)...")
+        web_poll_interval = poll_interval or self.poll_interval
+        logger.info(
+            f"🚀 Запуск моніторингу відключень Рівнеобленерго (Сарни)... "
+            f"(Опитування сайту: {web_poll_interval} сек, перевірка таймлайну: щохвилини, попередження за {self.warn_minutes} хв)"
+        )
+        last_web_check = 0.0
+        cached_days = []
 
         while True:
             try:
-                self.check_and_notify()
+                now = time.time()
+                # 1. Повне опитування сайту Рівнеобленерго
+                if now - last_web_check >= web_poll_interval or not cached_days:
+                    self.check_and_notify()
+                    last_web_check = now
+                    cached_days = getattr(self, "_last_days", [])
+                else:
+                    # 2. Якщо таймер опитування сайту ще не сплив, перевіряємо наближення відключень за 10 хв
+                    if cached_days:
+                        self.check_timeline_events(cached_days)
             except Exception as e:
                 logger.error(f"❌ Помилка в циклі моніторингу відключень: {e}", exc_info=True)
 
-            time.sleep(interval)
+            # Перевірку таймлайну подій робимо кожні 30-60 сек
+            time.sleep(min(60, web_poll_interval))
