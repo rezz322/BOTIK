@@ -47,7 +47,7 @@ class UkraineAlarmClient:
             return self.api_token
 
         try:
-            r = self.session.get(self.base_url, impersonate="chrome124", timeout=12)
+            r = self.session.get(self.base_url, impersonate="chrome124", timeout=20)
             if r.status_code == 200:
                 match = re.search(r'<input id="api-token"[^>]*value="([^"]+)"', r.text)
                 if match:
@@ -75,30 +75,46 @@ class UkraineAlarmClient:
 
         url = f"{self.base_url}/api/v2/data/mapUpdate"
         try:
-            r = self.session.get(url, headers=headers, impersonate="chrome124", timeout=10)
+            r = self.session.get(url, headers=headers, impersonate="chrome124", timeout=25)
             if r.status_code == 200:
                 return r.json()
+            elif r.status_code == 204:
+                # HTTP 204: на сервері немає нових оновлень
+                return None
             elif r.status_code == 401:
                 # Токен застарів — примусово оновлюємо
                 self.api_token = None
                 new_token = self.refresh_token_if_needed()
                 if new_token:
                     headers["Authorization"] = f"Bearer {new_token}"
-                    r = self.session.get(url, headers=headers, impersonate="chrome124", timeout=10)
+                    r = self.session.get(url, headers=headers, impersonate="chrome124", timeout=25)
                     if r.status_code == 200:
                         return r.json()
-            logger.warning(f"Неочікувана відповідь від mapUpdate: HTTP {r.status_code}")
+            elif r.status_code in (520, 521, 522, 523, 524, 525):
+                logger.warning(f"Сервер map.ukrainealarm.com тимчасово перевантажений (Cloudflare HTTP {r.status_code})")
+            else:
+                logger.warning(f"Неочікувана відповідь від mapUpdate: HTTP {r.status_code}")
         except Exception as e:
-            logger.error(f"Помилка запиту до mapUpdate: {e}")
+            logger.warning(f"Затримка або таймаут зв'язку з mapUpdate ({e}). Очікування наступного циклу...")
+            # Скидаємо сесію, щоб закрити завислий keep-alive сокет
+            try:
+                self.session.close()
+            except Exception:
+                pass
+            self.session = requests.Session()
+            self.session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+            })
 
         # Резервний запит: getAlerts
         try:
             url_backup = f"{self.base_url}/api/data/getAlerts"
-            r_b = self.session.get(url_backup, headers=headers, impersonate="chrome124", timeout=10)
+            r_b = self.session.get(url_backup, headers=headers, impersonate="chrome124", timeout=15)
             if r_b.status_code == 200:
                 return {"alerts": r_b.json(), "locations": {}, "migAlerts": [], "artillery": []}
         except Exception as e:
-            logger.error(f"Помилка резервного запиту до getAlerts: {e}")
+            logger.debug(f"Резервний запит до getAlerts не вдався: {e}")
 
         return None
 
@@ -116,13 +132,16 @@ class UkraineAlarmClient:
         lon = round(float(target.get("lon", 0)), 2)
         return f"{t_type}_{lat}_{lon}"
 
-    def get_status_for_sarny(self, map_data: dict = None, radar_radius_km: float = SARNY_RADIUS_KM) -> dict:
+    def get_status_for_sarny(self, map_data: dict = None, radar_radius_km: float = SARNY_RADIUS_KM) -> dict | None:
         """
         Повний аналіз загроз та статусу тривоги для Сарненського району
         та всіх його 11 підрайонів (громад).
+        Повертає None, якщо дані не вдалося отримати (запобігає хибному відбою).
         """
         if map_data is None:
-            map_data = self.fetch_map_update() or {}
+            map_data = self.fetch_map_update()
+            if map_data is None:
+                return None
 
         alerts = map_data.get("alerts", [])
         mig_alerts = map_data.get("migAlerts", [])

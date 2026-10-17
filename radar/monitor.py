@@ -64,13 +64,15 @@ class SarnyRadarMonitor:
         """Повертає цільовий thread_id для Telegram."""
         return self.thread_id
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict | None:
         """Отримує актуальний статус від map.ukrainealarm.com."""
         return self.client.get_status_for_sarny(radar_radius_km=self.radar_radius_km)
 
     def check_and_notify(self):
         """Опитує API та надсилає сповіщення у разі змін."""
         status = self.get_status()
+        if not status:
+            return
         now_dt = datetime.now()
         now_str = now_dt.strftime("%H.%M")
 
@@ -244,7 +246,13 @@ class SarnyRadarMonitor:
         logger.info(f"   🏘 Громад у моніторингу: {len(SARNY_COMMUNITIES)} (всі підрайони Сарненського району)")
 
         # Початковий статус
-        init_data = self.get_status()
+        init_data = None
+        while not init_data:
+            init_data = self.get_status()
+            if not init_data:
+                logger.warning("Очікування початкових даних від map.ukrainealarm.com (перевірка зв'язку)...")
+                time.sleep(3)
+
         self.is_alarm_active = init_data["overall_alarm"]
         if self.is_alarm_active:
             self.alarm_start_time = datetime.now()

@@ -31,7 +31,7 @@ class RivneoblenergoClient:
     та Сарненського району — ПрАТ «Рівнеобленерго» (roe.vsei.ua).
     """
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = 25):
         self.timeout = timeout
 
     def fetch_page_html(self) -> str:
