@@ -23,9 +23,11 @@ logger = logging.getLogger("PowerRunner")
 if __name__ == "__main__":
     print("=" * 65, flush=True)
     print("⚡️ МОНІТОРИНГ ВІДКЛЮЧЕНЬ СВІТЛА: САРНИ (РІВНЕОБЛЕНЕРГО)", flush=True)
-    print(f"👉 Цільова ветка (Thread ID): {THREAD_ID_POWER}", flush=True)
-    print(f"⏱ Інтервал перевірки сайту: {POWER_POLL_INTERVAL} сек. | Попередження за {POWER_WARN_MINUTES} хв.", flush=True)
+    print(f"👉 Цільовий Telegram Thread ID: {THREAD_ID_POWER}", flush=True)
+    print(f"⏱ Інтервал перевірки сайту: {POWER_POLL_INTERVAL} сек ({POWER_POLL_INTERVAL // 60} хв)", flush=True)
+    print(f"🔔 Попередження: за {POWER_WARN_MINUTES} хв до початку відключень", flush=True)
     print("=" * 65, flush=True)
+    sys.stdout.flush()
 
     monitor = SarnyPowerMonitor(send_to_telegram=True, poll_interval=POWER_POLL_INTERVAL)
     monitor.run_live()

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 import re
 import json
 import time
@@ -94,6 +95,8 @@ class SarnyPowerMonitor:
         self.state = self._load_state()
         self.sent_events: Set[str] = set(self.state.get("sent_events", []))
         self.sent_schedules: Set[str] = set(self.state.get("sent_schedules", []))
+        self.startup_sent: Set[str] = set()
+        self.cached_days: List[Dict[str, Any]] = []
 
     def _load_state(self) -> Dict[str, Any]:
         """Завантажує збережений стан із JSON-файлу."""
@@ -238,31 +241,34 @@ class SarnyPowerMonitor:
         if warn_groups:
             self._save_state()
 
-    def check_and_notify(self):
+    def check_and_notify(self, is_startup: bool = False):
         """Опитує сайт Рівнеобленерго та публікує графіки і сповіщення за 10 хв."""
-        logger.info("🔍 Перевірка графіків відключень Рівнеобленерго для Сарн...")
+        tag = "[Перший старт] " if is_startup else ""
+        logger.info(f"🔍 {tag}Перевірка графіків відключень Рівнеобленерго для Сарн...")
+        sys.stdout.flush()
         schedule_info = self.client.parse_schedule()
 
         if not schedule_info.get("success"):
-            logger.warning(f"⚠️ Не вдалося отримати графіки: {schedule_info.get('error')}")
+            logger.warning(f"⚠️ Не вдалося отримати графіки від Рівнеобленерго: {schedule_info.get('error')}")
+            sys.stdout.flush()
             return
 
         current_hash = schedule_info.get("hash")
         days = schedule_info.get("days", [])
-        self._last_days = days
+        self.cached_days = days
         last_hash = self.state.get("last_hash")
         days_states = self.state.get("days_states", {})
-        initial_sent = self.state.get("initial_sent", False)
 
-        days_summary = []
+        # Виводимо коротке резюме отриманих даних
+        outages_summary = []
         for d in days:
             outage_cnt = sum(
                 1 for v in d.get("status_by_subqueue", {}).values()
                 if v not in ("Без обмежень", "", "Очікується", "-")
             )
-            days_summary.append(f"{d['date']}: {outage_cnt} підчерг")
-        if days_summary:
-            logger.info(f"👉 Отримано днів у графіку: {len(days)} ({', '.join(days_summary)})")
+            outages_summary.append(f"{d.get('date')}: обмежень у {outage_cnt} підчергах (Очікується: {d.get('is_pending')})")
+        logger.info(f"📊 Дані з сайту отримано ({len(days)} дн.): " + "; ".join(outages_summary))
+        sys.stdout.flush()
 
         # -----------------------------------------------------------------
         # 0. ПЕРЕВІРКА ЕКСТРЕНИХ / АВАРІЙНИХ ВІДКЛЮЧЕНЬ
@@ -273,7 +279,9 @@ class SarnyPowerMonitor:
         if is_emergency != was_emergency:
             if is_emergency:
                 msg_emerg = (
-                    " <b> ВВЕДЕНО ЕКСТРЕНІ / АВАРІЙНІ ВІДКЛЮЧЕННЯ СВІТЛА!</b> \n\n"
+                    "🚨 <b>ВВЕДЕНО ЕКСТРЕНІ / АВАРІЙНІ ВІДКЛЮЧЕННЯ СВІТЛА!</b> 🚨\n\n"
+                    "⚠️ За розпорядженням НЕК «Укренерго» у Рівненській області та Сарненському районі "
+                    "застосовано аварійні відключення. Графіки погодинних відключень тимчасово не діють!"
                 )
                 logger.warning("🚨 Введено екстрені відключення світла!")
                 if self.send_to_telegram:
@@ -281,6 +289,7 @@ class SarnyPowerMonitor:
             else:
                 msg_cancel = (
                     "✅ <b>ЕКСТРЕНІ ВІДКЛЮЧЕННЯ СКАСОВАНО!</b> ✅\n\n"
+                    "Повертаємося до прогнозованих графіків погодинних відключень."
                 )
                 logger.info("✅ Екстрені відключення скасовано.")
                 if self.send_to_telegram:
@@ -290,7 +299,7 @@ class SarnyPowerMonitor:
             self._save_state()
 
         # -----------------------------------------------------------------
-        # 1. ПЕРЕВІРКА ЧАСОВИХ ПОДІЙ (За 10 хвилин, факт відключення, увімкнення)
+        # 1. ПЕРЕВІРКА ЧАСОВИХ ПОДІЙ (За 10 хвилин до відключення)
         # -----------------------------------------------------------------
         self.check_timeline_events(days)
 
@@ -308,19 +317,27 @@ class SarnyPowerMonitor:
             is_already_sent = d_date in self.sent_schedules
             has_changed = old_sq_status is not None and old_sq_status != new_sq_status
 
+            # Якщо ввімкнено SEND_INITIAL_POWER або перший старт сесії
+            should_send_initial = (is_startup or SEND_INITIAL_POWER) and (d_date not in self.startup_sent)
+
             # Публікуємо графік, тільки якщо є реальні відключення
             if has_outages:
-                if not is_already_sent:
-                    # Перший запуск або новий день з відключеннями
-                    logger.info(f"📢 Публікація графіка відключень на {d_date}...")
+                if not is_already_sent or should_send_initial:
+                    prefix_log = "📢 [Перший запуск] " if should_send_initial else "📢 "
+                    logger.info(f"{prefix_log}Публікація графіка відключень на {d_date} у Telegram (ветка {self.thread_id})...")
                     msg = self.format_schedule_message(
                         day,
                         title_prefix=f"📈 <b>Графік відключень на {d_date}</b>",
                     )
                     if self.send_to_telegram:
-                        self.sender._send_text_message(msg, thread_id=self.thread_id)
+                        sent_ok = self.sender._send_text_message(msg, thread_id=self.thread_id)
+                        if sent_ok:
+                            logger.info(f"✅ Графік на {d_date} успішно надіслано в Telegram!")
+                        else:
+                            logger.error(f"❌ Помилка надсилання графіка на {d_date} в Telegram!")
                         time.sleep(2)
                     self.sent_schedules.add(d_date)
+                    self.startup_sent.add(d_date)
                     schedule_published = True
 
                 elif has_changed:
@@ -345,31 +362,37 @@ class SarnyPowerMonitor:
             logger.info("💾 Стан графіків оновлено та збережено.")
         else:
             logger.info("⏸ Графіки без змін. Пропускаємо.")
+        sys.stdout.flush()
 
     def run_live(self, poll_interval: Optional[int] = None):
         """Запускає безперервний цикл моніторингу."""
-        web_poll_interval = poll_interval or self.poll_interval
-        logger.info(
-            f"🚀 Запуск моніторингу відключень Рівнеобленерго (Сарни)... "
-            f"(Опитування сайту: {web_poll_interval} сек, перевірка таймлайну: щохвилини, попередження за {self.warn_minutes} хв)"
-        )
-        last_web_check = 0.0
-        cached_days = []
+        site_poll_interval = poll_interval or self.poll_interval
+        logger.info("⚡️ Запуск моніторингу відключень Рівнеобленерго (Сарни)...")
+        logger.info(f"   📍 Цільовий Telegram Thread ID: {self.thread_id}")
+        logger.info(f"   ⏱ Інтервал перевірки сайту: кожні {site_poll_interval} сек ({site_poll_interval // 60} хв)")
+        logger.info(f"   🔔 Попередження: за {self.warn_minutes} хв до початку відключень (перевірка кожні 30 сек)")
+        sys.stdout.flush()
 
+        # 1. Перший старт: обов'язково отримуємо актуальні дані з сайту
+        try:
+            self.check_and_notify(is_startup=True)
+        except Exception as e:
+            logger.error(f"❌ Помилка під час початкової перевірки графіків: {e}", exc_info=True)
+
+        last_site_check = time.time()
+
+        # 2. Постійний цикл: кожні 30 сек перевіряємо часову шкалу (за 10 хв до вимкнення),
+        #    а сайт опитуємо раз на site_poll_interval (наприклад, щогодини).
         while True:
             try:
                 now = time.time()
-                # 1. Повне опитування сайту Рівнеобленерго
-                if now - last_web_check >= web_poll_interval or not cached_days:
-                    self.check_and_notify()
-                    last_web_check = now
-                    cached_days = getattr(self, "_last_days", [])
+                if (now - last_site_check) >= site_poll_interval:
+                    self.check_and_notify(is_startup=False)
+                    last_site_check = now
                 else:
-                    # 2. Якщо таймер опитування сайту ще не сплив, перевіряємо наближення відключень за 10 хв
-                    if cached_days:
-                        self.check_timeline_events(cached_days)
+                    if self.cached_days:
+                        self.check_timeline_events(self.cached_days)
             except Exception as e:
                 logger.error(f"❌ Помилка в циклі моніторингу відключень: {e}", exc_info=True)
 
-            # Перевірку таймлайну подій робимо кожні 30-60 сек
-            time.sleep(min(60, web_poll_interval))
+            time.sleep(30)
