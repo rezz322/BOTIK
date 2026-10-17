@@ -23,7 +23,10 @@ logger = logging.getLogger("PowerRunner")
 
 if __name__ == "__main__":
     client = RivneoblenergoClient()
-    schedule_data = client.parse_schedule()
+    try:
+        schedule_data = client.parse_schedule()
+    except Exception as e:
+        schedule_data = {"success": False, "error": str(e)}
 
     print("=" * 65)
     print("⚡️ МОНІТОРИНГ ВІДКЛЮЧЕНЬ СВІТЛА: САРНИ (РІВНЕОБЛЕНЕРГО)")
@@ -37,7 +40,7 @@ if __name__ == "__main__":
             )
             print(f"   • {d['date']}: обмежень у {outage_cnt} підчергах (Очікується: {d['is_pending']})")
     else:
-        print(f"⚠️ Не вдалося розпарсити таблицю: {schedule_data.get('error')}")
+        print(f"ℹ️ Спроба підключення до Рівнеобленерго: {schedule_data.get('error')}")
     print("=" * 65)
 
     monitor = SarnyPowerMonitor(send_to_telegram=True, poll_interval=POWER_POLL_INTERVAL)

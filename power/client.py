@@ -36,7 +36,21 @@ class RivneoblenergoClient:
 
     def fetch_page_html(self) -> str:
         """Отримує HTML сторінки відключень з підтримкою fallback методів."""
-        # 1. Спроба через curl_cffi або requests
+        # 1. Спроба через curl_cffi (реальний браузерний відбиток TLS, обхід WAF)
+        try:
+            from curl_cffi import requests as cffi_requests
+            res = cffi_requests.get(
+                ROE_DISCONNECTIONS_URL,
+                headers=DEFAULT_HEADERS,
+                impersonate="chrome124",
+                timeout=self.timeout,
+            )
+            if res.status_code == 200 and len(res.text) > 1000:
+                return res.text
+        except Exception as e:
+            logger.debug(f"curl_cffi fetch failed: {e}")
+
+        # 2. Спроба через requests
         try:
             import requests  # type: ignore
             res = requests.get(ROE_DISCONNECTIONS_URL, headers=DEFAULT_HEADERS, timeout=self.timeout)
@@ -45,15 +59,20 @@ class RivneoblenergoClient:
         except Exception as e:
             logger.debug(f"requests fetch failed: {e}")
 
-        # 2. Надійний fallback через urllib
-        import urllib.request
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        # 3. Надійний fallback через urllib
+        try:
+            import urllib.request
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
 
-        req = urllib.request.Request(ROE_DISCONNECTIONS_URL, headers=DEFAULT_HEADERS)
-        with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as response:
-            return response.read().decode("utf-8", errors="ignore")
+            req = urllib.request.Request(ROE_DISCONNECTIONS_URL, headers=DEFAULT_HEADERS)
+            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as response:
+                return response.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning(f"urllib fetch failed: {e}")
+
+        return ""
 
     def parse_schedule(self, html: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -81,6 +100,9 @@ class RivneoblenergoClient:
         """
         if not html:
             html = self.fetch_page_html()
+
+        if not html:
+            return {"success": False, "error": "fetch_failed"}
 
         table_match = re.search(r"<table[^>]*>(.*?)</table>", html, re.DOTALL)
         if not table_match:

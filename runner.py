@@ -49,33 +49,39 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # Очікуємо роботу процесів
+    # Очікуємо роботу процесів та перезапускаємо при збоях
     while True:
         if proc_radar.poll() is not None:
-            logger.error(f"⚠️ Процес UkraineAlarm несподівано завершився з кодом {proc_radar.returncode}!")
-            for p in (proc_fb, proc_power):
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
-            break
+            logger.error(f"⚠️ Процес UkraineAlarm завершився з кодом {proc_radar.returncode}! Перезапуск через 5 сек...")
+            time.sleep(5)
+            proc_radar = subprocess.Popen(
+                [sys.executable, "-u", "eradar_sarny.py"],
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
+            procs[0] = proc_radar
+
         if proc_fb.poll() is not None:
-            logger.error(f"⚠️ Процес Facebook несподівано завершився з кодом {proc_fb.returncode}!")
-            for p in (proc_radar, proc_power):
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
-            break
+            logger.error(f"⚠️ Процес Facebook завершився з кодом {proc_fb.returncode}! Перезапуск через 5 сек...")
+            time.sleep(5)
+            proc_fb = subprocess.Popen(
+                [sys.executable, "-u", "main.py"],
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
+            procs[1] = proc_fb
+
         if proc_power.poll() is not None:
-            logger.error(f"⚠️ Процес моніторингу відключень несподівано завершився з кодом {proc_power.returncode}!")
-            for p in (proc_radar, proc_fb):
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
-            break
-        time.sleep(2)
+            logger.error(f"⚠️ Процес моніторингу відключень завершився з кодом {proc_power.returncode}! Перезапуск через 5 сек...")
+            time.sleep(5)
+            proc_power = subprocess.Popen(
+                [sys.executable, "-u", "epower_sarny.py"],
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
+            procs[2] = proc_power
+
+        time.sleep(3)
 
 
 if __name__ == "__main__":
