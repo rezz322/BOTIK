@@ -7,3 +7,4 @@ services:
       - .env
     volumes:
       - ./seen_posts.json:/app/seen_posts.json
+      - ./power_state.json:/app/power_state.json

@@ -1,25 +1,93 @@
+# -*- coding: utf-8 -*-
+import os
 import sys
 import time
-import requests
-from dotenv import set_key, load_dotenv
+import json
 
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-load_dotenv()
+
+def load_env_fallback(filepath=".env"):
+    """Завантажує змінні з .env без зовнішніх бібліотек."""
+    if not os.path.exists(filepath):
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(filepath)
+    except ImportError:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k not in os.environ:
+                    os.environ[k] = v
+
+
+def set_env_key(filepath=".env", key="", value=""):
+    """Оновлює або додає ключ у .env (працює навіть без python-dotenv)."""
+    try:
+        from dotenv import set_key
+        set_key(filepath, key, str(value))
+        return
+    except ImportError:
+        pass
+
+    lines = []
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+    found = False
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(f"{key}=") or stripped == key:
+            new_lines.append(f"{key}={value}\n")
+            found = True
+        else:
+            new_lines.append(line)
+
+    if not found:
+        new_lines.append(f"{key}={value}\n")
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+
+def fetch_json(url, timeout=15):
+    """Отримує JSON з URL через requests або urllib."""
+    try:
+        import requests
+        return requests.get(url, timeout=timeout).json()
+    except ImportError:
+        import urllib.request
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+
+# Завантажуємо налаштування перед імпортом config
+load_env_fallback(".env")
 from config import TELEGRAM_BOT_TOKEN
 
 
 def main():
-    if not TELEGRAM_BOT_TOKEN:
+    token = TELEGRAM_BOT_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token:
         print("❌ Спочатку вкажіть TELEGRAM_BOT_TOKEN у файлі .env!")
         sys.exit(1)
 
     print("=" * 65)
-    print("🤖 ДЕТЕКТОР ВЕТОК (TOPICS) ДЛЯ '12312312 Chat'")
+    print("🤖 ДЕТЕКТОР ВЕТОК (TOPICS) ДЛЯ TELEGRAM ГРУПИ")
     print("=" * 65)
     print("1. Додайте вашого бота в групу як Адміністратора.")
     print("2. Напишіть повідомлення у кожну гілку, яку хочете визначити:")
@@ -27,6 +95,7 @@ def main():
     print("   • '2' або 'фейсбук 2'  -> THREAD_ID_FB_2")
     print("   • '3' або 'фейсбук 3'  -> THREAD_ID_FB_3")
     print("   • 'тривога' або 'сарни' -> THREAD_ID_ALERTS")
+    print("   • 'світло' або 'дтек'   -> THREAD_ID_POWER")
     print("   • 'одеса'              -> THREAD_ID_ALERTS_ODESA")
     print("   (або будь-який текст — скрипт покаже точний Thread ID кожної гілки)")
     print("=" * 65)
@@ -38,8 +107,8 @@ def main():
 
     while True:
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=10"
-            res = requests.get(url, timeout=15).json()
+            url = f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}&timeout=10"
+            res = fetch_json(url, timeout=15)
 
             for item in res.get("result", []):
                 offset = item["update_id"] + 1
@@ -68,6 +137,8 @@ def main():
                         assigned = "THREAD_ID_FB_1"
                     elif "2" in ident or "фейсбук 2" in ident or "fb2" in ident or "поліц" in ident:
                         assigned = "THREAD_ID_FB_2"
+                    elif "світл" in ident or "свет" in ident or "відключ" in ident or "отключ" in ident or "дтек" in ident or "обленерг" in ident or "power" in ident:
+                        assigned = "THREAD_ID_POWER"
                     elif "тривог" in ident or "тревог" in ident or "радар" in ident or "сарн" in ident:
                         assigned = "THREAD_ID_ALERTS"
 
@@ -78,9 +149,9 @@ def main():
                         print(f"   ℹ️ Thread ID = {thread_id} (вкажіть потрібну змінну в .env вручну)\n")
 
                     # Автоматично оновлюємо .env
-                    set_key(".env", "TELEGRAM_CHAT_ID", str(chat_id))
+                    set_env_key(".env", "TELEGRAM_CHAT_ID", str(chat_id))
                     for k, v in found_topics.items():
-                        set_key(".env", k, str(v))
+                        set_env_key(".env", k, str(v))
 
                     print("📊 Знайдені наразі змінні у .env:")
                     for k, v in found_topics.items():
@@ -88,12 +159,11 @@ def main():
                     print(f"   TELEGRAM_CHAT_ID = {target_chat_id}")
                     print("-" * 65)
 
-
             time.sleep(1)
         except KeyboardInterrupt:
             print("\nЗупинено користувачем.")
             break
-        except Exception:
+        except Exception as e:
             time.sleep(2)
 
 

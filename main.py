@@ -69,27 +69,27 @@ class AutoBot:
                 logger.info(f"   Поточний ID: {current_post_id} | Минулий збережений ID: {previous_post_id}")
 
                 if previous_post_id is None:
-                    # Перша ініціалізація
+                    # Перша ініціалізація: зберігаємо пост без публікації, якщо вимкнено SEND_INITIAL_POSTS
                     if SEND_INITIAL_POSTS:
                         logger.info(f"📢 Перший запуск: відправляємо пост (ID: {current_post_id}) у ветку {target_thread}")
                         self.sender.send_post(latest_post, thread_id=target_thread)
                     else:
                         logger.info(f"ℹ️ Перший запуск: зберігаємо ID {current_post_id} як минулий без відправки.")
 
-                    self.storage.set_last_post_id(url, current_post_id)
+                    self.storage.mark_seen(url, current_post_id)
 
-                elif current_post_id != previous_post_id:
-                    # ID змінився -> публікуємо новий пост у його ветку
+                elif not self.storage.is_seen(url, current_post_id):
+                    # Дійсно новий пост, якого ще не було в історії
                     logger.info(f"🆕 ЗНАЙДЕНО НОВИЙ ПОСТ! ID: {current_post_id} (минулий: {previous_post_id})")
                     logger.info(f"📢 Відправляємо у ветку {target_thread}...")
 
                     success = self.sender.send_post(latest_post, thread_id=target_thread)
                     if success or not TELEGRAM_BOT_TOKEN:
-                        self.storage.set_last_post_id(url, current_post_id)
-                        logger.info(f"💾 ID {current_post_id} збережено як минулий.")
+                        self.storage.mark_seen(url, current_post_id)
+                        logger.info(f"💾 ID {current_post_id} збережено як надісланий.")
 
                 else:
-                    logger.info(f"⏸ Пост не змінився (ID {current_post_id} == минулий ID). Пропускаємо.")
+                    logger.info(f"⏸ Пост не змінився або вже відправлявся (ID {current_post_id}). Пропускаємо.")
 
                 # Пауза між запитами
                 time.sleep(3)

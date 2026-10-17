@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 import os
-from dotenv import load_dotenv
-
 # Завантажуємо налаштування з .env
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Telegram налаштування
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -24,6 +26,14 @@ def _parse_thread_id(val):
 THREAD_ID_FB_1 = _parse_thread_id(os.getenv("THREAD_ID_FB_1"))              # гілка "Фейсбук 1"
 THREAD_ID_FB_2 = _parse_thread_id(os.getenv("THREAD_ID_FB_2"))              # гілка "Фейсбук 2"
 THREAD_ID_ALERTS = _parse_thread_id(os.getenv("THREAD_ID_ALERTS"))          # гілка "Тривога" (Сарни / Радар)
+THREAD_ID_POWER = _parse_thread_id(os.getenv("THREAD_ID_POWER"))            # гілка "Світло / Відключення" (Сарни)
+
+# Налаштування моніторингу відключень електроенергії (Рівнеобленерго для Сарн):
+POWER_POLL_INTERVAL = int(os.getenv("POWER_POLL_INTERVAL", "60"))           # Інтервал опитування графіків (секунди, 60 сек)
+POWER_WARN_MINUTES = int(os.getenv("POWER_WARN_MINUTES", "10"))             # Попереджати за N хвилин до початку відключення (за замовчуванням 10 хв)
+POWER_TARGET_SUBQUEUES = os.getenv("POWER_TARGET_SUBQUEUES", "all")         # Підчерги для відображення ('all' або '1.1,1.2')
+SEND_INITIAL_POWER = os.getenv("SEND_INITIAL_POWER", "True").lower() in ("true", "1", "yes")
+POWER_STATE_FILE = os.getenv("POWER_STATE_FILE", "power_state.json")        # Файл збереження стану графіків
 
 # Налаштування моніторингу map.ukrainealarm.com:
 RADAR_RADIUS_KM = float(os.getenv("RADAR_RADIUS_KM", "75"))  # Радіус виявлення цілей навколо Сарн та громад (км)
@@ -51,7 +61,7 @@ URL_TO_THREAD = {
 CHECK_INTERVAL_HOURS = int(os.getenv("CHECK_INTERVAL_HOURS", "1"))
 
 # Чи відправляти пости, знайдені при першому запуску
-SEND_INITIAL_POSTS = os.getenv("SEND_INITIAL_POSTS", "True").lower() in ("true", "1", "yes")
+SEND_INITIAL_POSTS = os.getenv("SEND_INITIAL_POSTS", "False").lower() in ("true", "1", "yes")
 
 # Файл збереження вже надісланих постів Facebook
 SEEN_POSTS_FILE = os.getenv("SEEN_POSTS_FILE", "seen_posts.json")

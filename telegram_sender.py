@@ -4,7 +4,41 @@ import html
 import json
 import logging
 from typing import List, Dict, Any, Optional
-import requests
+
+try:
+    import requests
+except ImportError:
+    import urllib.request
+    import urllib.error
+    import json as _json_mod
+    class _MockResponse:
+        def __init__(self, status_code, content):
+            self.status_code = status_code
+            self._content = content
+            self.text = content.decode("utf-8", errors="ignore")
+        def json(self):
+            return _json_mod.loads(self.text)
+
+    class _RequestsShim:
+        @staticmethod
+        def post(url, json=None, data=None, timeout=20):
+            req = urllib.request.Request(url, method="POST")
+            if json is not None:
+                body = _json_mod.dumps(json) if not isinstance(json, str) else json
+                req.add_header("Content-Type", "application/json")
+                req.data = body.encode("utf-8")
+            elif data is not None:
+                body = urllib.parse.urlencode(data).encode("utf-8") if isinstance(data, dict) else str(data).encode("utf-8")
+                req.data = body
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return _MockResponse(resp.status, resp.read())
+            except urllib.error.HTTPError as err:
+                return _MockResponse(err.code, err.read())
+            except Exception as e:
+                raise e
+    requests = _RequestsShim()  # type: ignore
+
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
